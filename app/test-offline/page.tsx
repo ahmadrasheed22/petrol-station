@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, PendingSale } from "@/lib/offline-db";
+import { type PendingSale } from "@/lib/offline-db";
+import {
+  addDummySale,
+  clearPendingSales,
+  fetchPendingSales,
+} from "@/lib/services/offline-service";
 
 export default function OfflineTestPage() {
   const [isOnline, setIsOnline] = useState<boolean>(true);
 
-  // Live query from Dexie IndexedDB
-  const pendingSales = useLiveQuery(() => db.pendingSales.toArray());
+  // Live query from Dexie IndexedDB via service function
+  const pendingSales = useLiveQuery(fetchPendingSales);
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
@@ -27,17 +32,7 @@ export default function OfflineTestPage() {
 
   const handleAddDummySale = async () => {
     try {
-      await db.pendingSales.add({
-        shift_id: "shift_test",
-        product_id: "Petrol",
-        opening_meter: 1000,
-        closing_meter: 1010,
-        total_liters: 10,
-        applied_sp: 270,
-        applied_cp: 260,
-        sync_status: "pending",
-        created_at: new Date().toISOString(),
-      });
+      await addDummySale();
     } catch (error) {
       console.error("Failed to add dummy sale:", error);
     }
@@ -45,7 +40,7 @@ export default function OfflineTestPage() {
 
   const handleClearData = async () => {
     try {
-      await db.pendingSales.clear();
+      await clearPendingSales();
     } catch (error) {
       console.error("Failed to clear pending sales:", error);
     }
