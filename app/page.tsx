@@ -1,14 +1,10 @@
-import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthenticatedUser();
 
-  // Fallback check if user is not present (middleware already protects, but good practice for server component)
   if (!user) {
     redirect("/login");
   }
@@ -75,7 +71,7 @@ export default async function DashboardPage() {
                 Welcome back, {user.email}
               </h2>
               <p className="text-sm text-zinc-400 mt-1">
-                Authenticated session established via Supabase Auth SSR.
+                Authenticated session managed via User Service & Proxy Routing.
               </p>
             </div>
             <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800/80 text-xs font-mono text-zinc-400 space-y-1">
@@ -85,7 +81,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Dashboard Grid Placeholder Cards */}
+        {/* Dashboard Operations Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-2">
             <div className="flex items-center justify-between text-zinc-400">
@@ -117,7 +113,7 @@ export default async function DashboardPage() {
               </svg>
             </div>
             <div className="text-3xl font-bold text-white">Protected</div>
-            <p className="text-xs text-zinc-500">Route Middleware & SSR Auth active</p>
+            <p className="text-xs text-zinc-500">Proxy Routing & Service Layer active</p>
           </div>
         </div>
       </main>
