@@ -43,3 +43,13 @@ export async function login(email: string, password: string): Promise<AuthRespon
 
   redirect("/");
 }
+
+/**
+ * Server action to sign out the user via Supabase.
+ */
+export async function logout() {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  redirect("/login");
+}
+
