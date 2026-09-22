@@ -90,3 +90,22 @@ export async function addDummySale() {
 export async function clearPendingSales() {
   return await db.pendingSales.clear();
 }
+
+export async function addPendingExpense(expenseData: {
+  shift_id?: string;
+  amount: number;
+  category: string;
+  description?: string;
+}): Promise<number> {
+  const now = new Date().toISOString();
+  const id = await db.pendingExpenses.add({
+    shift_id: expenseData.shift_id,
+    amount: expenseData.amount,
+    category: expenseData.category,
+    description: expenseData.description,
+    sync_status: "pending",
+    created_at: now,
+  });
+  return id as number;
+}
+

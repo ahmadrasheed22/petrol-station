@@ -28,6 +28,15 @@ export async function login(email: string, password: string): Promise<AuthRespon
 
     if (error) {
       errorMessage = error.message;
+    } else {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        const { ensureUserProfile } = await import("@/lib/services/user-service");
+        await ensureUserProfile(user);
+      }
     }
   } catch (err: unknown) {
     if (err instanceof Error) {

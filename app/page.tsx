@@ -3,6 +3,8 @@ import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import ShiftManager from "@/components/ShiftManager";
 import SalesForm from "@/components/SalesForm";
+import ExpenseForm from "@/components/ExpenseForm";
+import DashboardStats from "@/components/DashboardStats";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
@@ -85,11 +87,16 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Phase 4: Pump Operations Components */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Real-time Dexie Dashboard Stats */}
+        <DashboardStats />
+
+        {/* Pump Operations & Expense Logging Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <ShiftManager userId={user.id} />
           <SalesForm />
+          <ExpenseForm />
         </div>
+
 
         {/* Dashboard Operations Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

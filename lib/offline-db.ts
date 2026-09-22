@@ -68,6 +68,13 @@ export class PetrolPumpDB extends Dexie {
       pendingLedger: "++id, sync_status, customer_id, transaction_type, created_at",
       shifts: "++id, shift_id, user_id, status, sync_status, created_at",
     });
+
+    this.version(3).stores({
+      pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+      pendingExpenses: "++id, sync_status, shift_id, category, amount, description, created_at",
+      pendingLedger: "++id, sync_status, customer_id, transaction_type, created_at",
+      shifts: "++id, shift_id, user_id, status, sync_status, created_at",
+    });
   }
 }
 
