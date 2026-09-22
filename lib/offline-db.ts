@@ -6,11 +6,22 @@ export interface PendingSale {
   id?: number;
   shift_id?: string;
   product_id: string;
-  opening_meter: number;
-  closing_meter: number;
+  opening_meter?: number;
+  closing_meter?: number;
   total_liters: number;
   applied_sp: number;
-  applied_cp: number;
+  applied_cp?: number;
+  sync_status: SyncStatus;
+  created_at: string;
+}
+
+export interface ShiftRecord {
+  id?: number;
+  shift_id: string;
+  user_id: string;
+  start_time: string;
+  end_time?: string;
+  status: "active" | "ended";
   sync_status: SyncStatus;
   created_at: string;
 }
@@ -41,6 +52,7 @@ export class PetrolPumpDB extends Dexie {
   pendingSales!: EntityTable<PendingSale, "id">;
   pendingExpenses!: EntityTable<PendingExpense, "id">;
   pendingLedger!: EntityTable<PendingLedger, "id">;
+  shifts!: EntityTable<ShiftRecord, "id">;
 
   constructor() {
     super("PetrolPumpDB");
@@ -48,6 +60,13 @@ export class PetrolPumpDB extends Dexie {
       pendingSales: "++id, sync_status, shift_id, product_id, created_at",
       pendingExpenses: "++id, sync_status, shift_id, category, created_at",
       pendingLedger: "++id, sync_status, customer_id, transaction_type, created_at",
+    });
+
+    this.version(2).stores({
+      pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+      pendingExpenses: "++id, sync_status, shift_id, category, created_at",
+      pendingLedger: "++id, sync_status, customer_id, transaction_type, created_at",
+      shifts: "++id, shift_id, user_id, status, sync_status, created_at",
     });
   }
 }

@@ -1,6 +1,8 @@
 import { getAuthenticatedUser } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
+import ShiftManager from "@/components/ShiftManager";
+import SalesForm from "@/components/SalesForm";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
@@ -50,7 +52,7 @@ export default async function DashboardPage() {
             <form action={logout}>
               <button
                 type="submit"
-                className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 cursor-pointer"
               >
                 Sign Out
               </button>
@@ -81,6 +83,12 @@ export default async function DashboardPage() {
               <div><span className="text-zinc-500">Last Sign In:</span> {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : 'N/A'}</div>
             </div>
           </div>
+        </div>
+
+        {/* Phase 4: Pump Operations Components */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ShiftManager userId={user.id} />
+          <SalesForm />
         </div>
 
         {/* Dashboard Operations Grid */}

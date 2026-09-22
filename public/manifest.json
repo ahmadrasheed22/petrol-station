@@ -1,12 +1,11 @@
 {
-  "name": "Pump Manager",
-  "short_name": "Pump Manager",
-  "description": "Enterprise Petrol Pump Management SaaS for Owners & Workers",
+  "name": "Petrol Station Management SaaS",
+  "short_name": "PetrolPump",
+  "description": "Offline-first Petrol Pump Operations and Sales Management SaaS",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
-  "orientation": "portrait",
+  "background_color": "#09090b",
+  "theme_color": "#10b981",
   "icons": [
     {
       "src": "/icon-192x192.png",
