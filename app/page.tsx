@@ -1,5 +1,6 @@
 import { getAuthenticatedUser } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
+import SyncIndicator from "@/components/SyncIndicator";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
@@ -39,6 +40,7 @@ export default async function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            <SyncIndicator />
             <div className="hidden sm:flex flex-col text-right">
               <span className="text-xs text-zinc-400">Signed in as</span>
               <span className="text-sm font-medium text-emerald-400">
