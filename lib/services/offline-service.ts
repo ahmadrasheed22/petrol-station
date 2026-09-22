@@ -4,6 +4,7 @@ import {
   PendingSale,
   CustomerRecord,
   PendingLedgerTransaction,
+  PendingInventory,
 } from "@/lib/offline-db";
 
 /**
@@ -203,5 +204,33 @@ export async function addPendingLedgerTx(txData: {
   }
 
   return id as number;
+}
+
+/**
+ * Saves a pending fuel tanker arrival (inventory) to Dexie with sync_status: 'pending'.
+ */
+export async function addPendingInventory(arrivalData: {
+  product_id: string;
+  billed_liters: number;
+  actual_received_liters: number;
+  cost_per_liter: number;
+}): Promise<number> {
+  const now = new Date().toISOString();
+  const id = await db.pendingInventory.add({
+    product_id: arrivalData.product_id,
+    billed_liters: arrivalData.billed_liters,
+    actual_received_liters: arrivalData.actual_received_liters,
+    cost_per_liter: arrivalData.cost_per_liter,
+    sync_status: "pending",
+    created_at: now,
+  });
+  return id as number;
+}
+
+/**
+ * Fetches all pending/synced inventory records from Dexie.
+ */
+export function fetchPendingInventory(): Promise<PendingInventory[]> {
+  return db.pendingInventory.toArray();
 }
 

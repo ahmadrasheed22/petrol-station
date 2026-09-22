@@ -59,11 +59,24 @@ export interface PendingLedgerTransaction {
 
 export type PendingLedger = PendingLedgerTransaction;
 
+export interface PendingInventory {
+  id?: number;
+  product_id: string;
+  billed_liters: number;
+  actual_received_liters: number;
+  cost_per_liter: number;
+  sync_status: SyncStatus;
+  created_at: string;
+}
+
+export type pendingInventory = PendingInventory;
+
 export class PetrolPumpDB extends Dexie {
   pendingSales!: EntityTable<PendingSale, "id">;
   pendingExpenses!: EntityTable<PendingExpense, "id">;
   pendingLedger!: EntityTable<PendingLedger, "id">;
   pendingLedgerTransactions!: EntityTable<PendingLedgerTransaction, "id">;
+  pendingInventory!: EntityTable<PendingInventory, "id">;
   shifts!: EntityTable<ShiftRecord, "id">;
   customers!: EntityTable<CustomerRecord, "id">;
 
@@ -96,6 +109,16 @@ export class PetrolPumpDB extends Dexie {
       pendingLedgerTransactions: "++id, sync_status, customer_id, transaction_type, created_at",
       shifts: "++id, shift_id, user_id, status, sync_status, created_at",
       customers: "id, name, vehicle_number, total_balance",
+    });
+
+    this.version(5).stores({
+      pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+      pendingExpenses: "++id, sync_status, shift_id, category, amount, description, created_at",
+      pendingLedger: "++id, sync_status, customer_id, transaction_type, created_at",
+      pendingLedgerTransactions: "++id, sync_status, customer_id, transaction_type, created_at",
+      shifts: "++id, shift_id, user_id, status, sync_status, created_at",
+      customers: "id, name, vehicle_number, total_balance",
+      pendingInventory: "++id, sync_status, product_id, created_at",
     });
   }
 }
