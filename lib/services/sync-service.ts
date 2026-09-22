@@ -1,13 +1,16 @@
 import { db } from "@/lib/offline-db";
 import {
+  syncShiftsToCloud,
   syncTransactionsToCloud,
   syncExpensesToCloud,
+  type ShiftPayload,
   type TransactionPayload,
   type ExpensePayload,
 } from "@/actions/db-actions";
 
 export interface ProcessQueueResult {
   success: boolean;
+  syncedShiftsCount: number;
   syncedSalesCount: number;
   syncedExpensesCount: number;
   pendingRemainingCount: number;
@@ -19,6 +22,10 @@ export interface ProcessQueueResult {
  */
 export async function getPendingCount(): Promise<number> {
   try {
+    const pendingShifts = await db.shifts
+      .where("sync_status")
+      .equals("pending")
+      .count();
     const pendingSales = await db.pendingSales
       .where("sync_status")
       .equals("pending")
@@ -31,7 +38,7 @@ export async function getPendingCount(): Promise<number> {
       .where("sync_status")
       .equals("pending")
       .count();
-    return pendingSales + pendingExpenses + pendingLedger;
+    return pendingShifts + pendingSales + pendingExpenses + pendingLedger;
   } catch (error) {
     console.error("Failed to query pending records count from Dexie:", error);
     return 0;
@@ -40,16 +47,58 @@ export async function getPendingCount(): Promise<number> {
 
 /**
  * Processes un-synced offline records in Dexie and syncs them to Supabase.
+ * Execution Order:
+ * 1. Shifts (upserted to Supabase 'shifts' table to ensure FK requirements are satisfied)
+ * 2. Sales / Transactions
+ * 3. Expenses
  * Strict Error Fallback: Records are strictly retained as 'pending' unless
  * the server action returns success: true.
  */
 export async function processOfflineQueue(): Promise<ProcessQueueResult> {
+  let syncedShiftsCount = 0;
   let syncedSalesCount = 0;
   let syncedExpensesCount = 0;
   const errors: string[] = [];
 
   try {
-    // 1. Process Pending Sales -> transactions table
+    // 1. Process Pending Shifts -> shifts table FIRST (satisfies foreign key constraint)
+    const pendingShifts = await db.shifts
+      .where("sync_status")
+      .equals("pending")
+      .toArray();
+
+    if (pendingShifts.length > 0) {
+      const shiftPayloads: ShiftPayload[] = pendingShifts.map((shift) => ({
+        shift_id: shift.shift_id,
+        user_id: shift.user_id,
+        start_time: shift.start_time,
+        end_time: shift.end_time,
+        created_at: shift.created_at,
+      }));
+
+      const shiftsResult = await syncShiftsToCloud(shiftPayloads);
+
+      if (shiftsResult.success) {
+        const shiftIds = pendingShifts
+          .map((s) => s.id)
+          .filter((id): id is number => id !== undefined);
+
+        if (shiftIds.length > 0) {
+          // Strictly update local Dexie status ONLY on success: true
+          await db.shifts
+            .where("id")
+            .anyOf(shiftIds)
+            .modify({ sync_status: "synced" });
+        }
+        syncedShiftsCount = shiftsResult.insertedCount ?? pendingShifts.length;
+      } else {
+        const errorDetails = `Shifts sync error: ${shiftsResult.error || "Unknown server error"}`;
+        console.error("SYNC FAILED:", errorDetails);
+        errors.push(errorDetails);
+      }
+    }
+
+    // 2. Process Pending Sales -> transactions table
     const pendingSales = await db.pendingSales
       .where("sync_status")
       .equals("pending")
@@ -92,7 +141,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       }
     }
 
-    // 2. Process Pending Expenses -> expenses table
+    // 3. Process Pending Expenses -> expenses table
     const pendingExpenses = await db.pendingExpenses
       .where("sync_status")
       .equals("pending")
@@ -137,6 +186,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       console.error("SYNC FAILED (Batch Summary):", fullErrorMessage);
       return {
         success: false,
+        syncedShiftsCount,
         syncedSalesCount,
         syncedExpensesCount,
         pendingRemainingCount,
@@ -146,6 +196,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
 
     return {
       success: true,
+      syncedShiftsCount,
       syncedSalesCount,
       syncedExpensesCount,
       pendingRemainingCount,
@@ -157,6 +208,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
     const pendingRemainingCount = await getPendingCount();
     return {
       success: false,
+      syncedShiftsCount: 0,
       syncedSalesCount,
       syncedExpensesCount,
       pendingRemainingCount,
@@ -164,3 +216,4 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
     };
   }
 }
+

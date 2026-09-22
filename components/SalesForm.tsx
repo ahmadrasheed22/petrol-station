@@ -13,6 +13,12 @@ interface Product {
   current_cp?: number;
 }
 
+const DEFAULT_PRODUCTS: Product[] = [
+  { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
+  { id: "22222222-2222-4222-8222-222222222222", name: "Diesel", current_sp: 280, current_cp: 265 },
+  { id: "33333333-3333-4333-8333-333333333333", name: "Hi-Octane", current_sp: 300, current_cp: 285 },
+];
+
 export default function SalesForm() {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -27,6 +33,7 @@ export default function SalesForm() {
   const productInputId = useId();
   const litersInputId = useId();
   const priceInputId = useId();
+  const totalAmountInputId = useId();
 
   // Safeguard against SSR hydration mismatch & load products from Supabase
   useEffect(() => {
@@ -51,9 +58,28 @@ export default function SalesForm() {
           if (data[0].current_sp) {
             setPricePerLiterStr(data[0].current_sp.toString());
           }
+        } else {
+          // If products table is empty in Supabase, auto-seed default products
+          const { data: seededData, error: seedError } = await supabase
+            .from("products")
+            .upsert(DEFAULT_PRODUCTS, { onConflict: "id" })
+            .select("id, name, current_sp, current_cp");
+
+          const effectiveProducts = (!seedError && seededData && seededData.length > 0)
+            ? seededData
+            : DEFAULT_PRODUCTS;
+
+          setProducts(effectiveProducts);
+          setProductId(effectiveProducts[0].id);
+          if (effectiveProducts[0].current_sp) {
+            setPricePerLiterStr(effectiveProducts[0].current_sp.toString());
+          }
         }
       } catch (err: unknown) {
         console.error("Failed to load products:", err);
+        setProducts(DEFAULT_PRODUCTS);
+        setProductId(DEFAULT_PRODUCTS[0].id);
+        setPricePerLiterStr(DEFAULT_PRODUCTS[0].current_sp!.toString());
       } finally {
         setIsLoadingProducts(false);
       }
@@ -209,6 +235,7 @@ export default function SalesForm() {
             </label>
             <select
               id={productInputId}
+              name="product_id"
               value={productId}
               onChange={(e) => handleProductChange(e.target.value)}
               disabled={isLoadingProducts || products.length === 0}
@@ -238,6 +265,7 @@ export default function SalesForm() {
               </label>
               <input
                 id={litersInputId}
+                name="liters"
                 type="number"
                 step="0.01"
                 min="0.01"
@@ -258,6 +286,7 @@ export default function SalesForm() {
               </label>
               <input
                 id={priceInputId}
+                name="price_per_liter"
                 type="number"
                 step="0.01"
                 min="0.01"
@@ -271,10 +300,15 @@ export default function SalesForm() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+            <label
+              htmlFor={totalAmountInputId}
+              className="block text-xs font-medium text-zinc-400 mb-1.5"
+            >
               Total Amount (Calculated)
             </label>
             <input
+              id={totalAmountInputId}
+              name="total_amount"
               type="text"
               readOnly
               value={
