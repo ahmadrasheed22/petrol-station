@@ -15,7 +15,10 @@ export async function getActiveShift(): Promise<ShiftRecord | undefined> {
 
 export async function startShift(userId: string): Promise<ShiftRecord> {
   const now = new Date().toISOString();
-  const shiftId = `shift_${Date.now()}`;
+  const shiftId =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
 
   // Automatically mark any existing active shift as ended
   const existingActive = await db.shifts

@@ -57,8 +57,11 @@ export async function syncTransactionsToCloud(
       .select("id");
 
     if (error) {
-      console.error("Supabase insert transactions error:", error.message);
-      return { success: false, error: error.message };
+      const fullErrorMsg = [error.message, error.details, error.hint]
+        .filter(Boolean)
+        .join(" | ");
+      console.error("Supabase insert transactions error:", fullErrorMsg);
+      return { success: false, error: fullErrorMsg };
     }
 
     return {
@@ -102,8 +105,11 @@ export async function syncExpensesToCloud(
       .select("id");
 
     if (error) {
-      console.error("Supabase insert expenses error:", error.message);
-      return { success: false, error: error.message };
+      const fullErrorMsg = [error.message, error.details, error.hint]
+        .filter(Boolean)
+        .join(" | ");
+      console.error("Supabase insert expenses error:", fullErrorMsg);
+      return { success: false, error: fullErrorMsg };
     }
 
     return {

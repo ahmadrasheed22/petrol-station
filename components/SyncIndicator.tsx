@@ -24,10 +24,11 @@ export default function SyncIndicator() {
       const result = await processOfflineQueue();
       setPendingCount(result.pendingRemainingCount);
       if (!result.success && result.error) {
+        console.error("SYNC FAILED:", result.error);
         setSyncError(result.error);
       }
     } catch (err: unknown) {
-      console.error("Sync error in SyncIndicator:", err);
+      console.error("SYNC FAILED:", err);
       setSyncError("Sync failed");
     } finally {
       setIsSyncing(false);

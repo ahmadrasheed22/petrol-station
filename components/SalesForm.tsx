@@ -4,10 +4,20 @@ import { useState, useEffect, useId } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
 import { addPendingSale } from "@/lib/services/offline-service";
+import { createClient } from "@/lib/supabase/client";
+
+interface Product {
+  id: string;
+  name: string;
+  current_sp?: number;
+  current_cp?: number;
+}
 
 export default function SalesForm() {
   const [mounted, setMounted] = useState(false);
-  const [productId, setProductId] = useState("Petrol");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productId, setProductId] = useState<string>("");
+  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
   const [litersStr, setLitersStr] = useState("");
   const [pricePerLiterStr, setPricePerLiterStr] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,9 +28,38 @@ export default function SalesForm() {
   const litersInputId = useId();
   const priceInputId = useId();
 
-  // Safeguard against SSR hydration mismatch
+  // Safeguard against SSR hydration mismatch & load products from Supabase
   useEffect(() => {
     setMounted(true);
+
+    async function fetchProducts() {
+      setIsLoadingProducts(true);
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, name, current_sp, current_cp")
+          .order("name");
+
+        if (error) {
+          console.error("Error fetching products from Supabase:", error.message);
+        }
+
+        if (data && data.length > 0) {
+          setProducts(data);
+          setProductId(data[0].id);
+          if (data[0].current_sp) {
+            setPricePerLiterStr(data[0].current_sp.toString());
+          }
+        }
+      } catch (err: unknown) {
+        console.error("Failed to load products:", err);
+      } finally {
+        setIsLoadingProducts(false);
+      }
+    }
+
+    fetchProducts();
   }, []);
 
   // Live query for current active shift
@@ -37,11 +76,23 @@ export default function SalesForm() {
   const pricePerLiter = parseFloat(pricePerLiterStr) || 0;
   const totalAmount = liters * pricePerLiter;
 
+  const handleProductChange = (newProductId: string) => {
+    setProductId(newProductId);
+    const selected = products.find((p) => p.id === newProductId);
+    if (selected && selected.current_sp) {
+      setPricePerLiterStr(selected.current_sp.toString());
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMsg(null);
     setErrorMsg(null);
 
+    if (!productId) {
+      setErrorMsg("Please select a valid product.");
+      return;
+    }
     if (liters <= 0) {
       setErrorMsg("Please enter a valid number of liters (> 0).");
       return;
@@ -51,20 +102,22 @@ export default function SalesForm() {
       return;
     }
 
+    const selectedProduct = products.find((p) => p.id === productId);
+    const productName = selectedProduct ? selectedProduct.name : "Product";
+
     setIsSubmitting(true);
     try {
       await addPendingSale({
         shift_id: activeShift?.shift_id,
-        product_id: productId,
+        product_id: productId, // Sends actual UUID to Dexie & Supabase
         total_liters: liters,
         applied_sp: pricePerLiter,
       });
 
       setSuccessMsg(
-        `Sale of ${liters}L (${productId}) saved to Dexie successfully!`
+        `Sale of ${liters}L (${productName}) saved to Dexie successfully!`
       );
       setLitersStr("");
-      setPricePerLiterStr("");
     } catch (err: unknown) {
       console.error("Error saving sale to Dexie:", err);
       setErrorMsg("Failed to save sale record locally.");
@@ -157,12 +210,21 @@ export default function SalesForm() {
             <select
               id={productInputId}
               value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors"
+              onChange={(e) => handleProductChange(e.target.value)}
+              disabled={isLoadingProducts || products.length === 0}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors disabled:opacity-50"
             >
-              <option value="Petrol">Petrol (Regular)</option>
-              <option value="Diesel">Diesel</option>
-              <option value="Hi-Octane">Hi-Octane</option>
+              {isLoadingProducts ? (
+                <option value="">Loading products...</option>
+              ) : products.length === 0 ? (
+                <option value="">No products found in database</option>
+              ) : (
+                products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -233,7 +295,7 @@ export default function SalesForm() {
         <button
           type="submit"
           form="sales-form"
-          disabled={isSubmitting}
+          disabled={isSubmitting || isLoadingProducts || products.length === 0}
           className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 cursor-pointer"
         >
           {isSubmitting ? "Saving to Dexie..." : "Log Sale Record (Offline)"}

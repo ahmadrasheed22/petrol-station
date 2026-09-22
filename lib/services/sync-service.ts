@@ -86,9 +86,9 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
         syncedSalesCount = salesResult.insertedCount ?? pendingSales.length;
       } else {
         // Server error or unreachable: strictly keep records as 'pending'
-        errors.push(
-          `Sales sync error: ${salesResult.error || "Unknown server error"}`
-        );
+        const errorDetails = `Sales sync error: ${salesResult.error || "Unknown server error"}`;
+        console.error("SYNC FAILED:", errorDetails);
+        errors.push(errorDetails);
       }
     }
 
@@ -124,21 +124,23 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
         syncedExpensesCount = expensesResult.insertedCount ?? pendingExpenses.length;
       } else {
         // Server error or unreachable: strictly keep records as 'pending'
-        errors.push(
-          `Expenses sync error: ${expensesResult.error || "Unknown server error"}`
-        );
+        const errorDetails = `Expenses sync error: ${expensesResult.error || "Unknown server error"}`;
+        console.error("SYNC FAILED:", errorDetails);
+        errors.push(errorDetails);
       }
     }
 
     const pendingRemainingCount = await getPendingCount();
 
     if (errors.length > 0) {
+      const fullErrorMessage = errors.join("; ");
+      console.error("SYNC FAILED (Batch Summary):", fullErrorMessage);
       return {
         success: false,
         syncedSalesCount,
         syncedExpensesCount,
         pendingRemainingCount,
-        error: errors.join("; "),
+        error: fullErrorMessage,
       };
     }
 
@@ -151,7 +153,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
   } catch (err: unknown) {
     const errorMsg =
       err instanceof Error ? err.message : "Unexpected error in processOfflineQueue";
-    console.error("processOfflineQueue exception:", err);
+    console.error("SYNC FAILED:", errorMsg, err);
     const pendingRemainingCount = await getPendingCount();
     return {
       success: false,
