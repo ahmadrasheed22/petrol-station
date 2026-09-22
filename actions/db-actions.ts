@@ -428,12 +428,20 @@ export async function syncLedgerToCloud(
       .select("id");
 
     if (error) {
-      const fullErrorMsg = [error.message, error.details, error.hint]
-        .filter(Boolean)
-        .join(" | ");
+      const isMissingTable =
+        error.message?.includes("Could not find the table") ||
+        error.message?.includes("schema cache") ||
+        error.code === "PGRST205" ||
+        error.code === "42P01";
+
+      const fullErrorMsg = isMissingTable
+        ? "Supabase table 'public.ledger_transactions' is missing. Please run migration '0002_profiles_trigger_and_seed.sql' in your Supabase Dashboard SQL Editor."
+        : [error.message, error.details, error.hint].filter(Boolean).join(" | ");
+
       console.error("Supabase insert ledger_transactions error:", fullErrorMsg);
       return { success: false, error: fullErrorMsg };
     }
+
 
     // 4. Update customer total balances in Supabase
     const customerDeltas = new Map<string, number>();
