@@ -29,11 +29,22 @@ export interface ShiftPayload {
   created_at?: string;
 }
 
+export interface LedgerPayload {
+  customer_id: string;
+  worker_id?: string;
+  liters?: number;
+  amount: number;
+  applied_sp?: number;
+  transaction_type?: "credit" | "payment";
+  created_at?: string;
+}
+
 export interface SyncResult {
   success: boolean;
   insertedCount?: number;
   error?: string;
 }
+
 
 /**
  * Bulk upsert pending shifts into Supabase 'shifts' table.
@@ -295,3 +306,177 @@ export async function syncExpensesToCloud(
     return { success: false, error: errorMsg };
   }
 }
+
+const KNOWN_DEFAULT_CUSTOMERS = [
+  {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    name: "Malik Goods Transport",
+    vehicle_number: "LES-4589",
+    total_balance: 15400,
+  },
+  {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    name: "Al-Madina Bus Service",
+    vehicle_number: "FSD-1122",
+    total_balance: 42000,
+  },
+  {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    name: "Chaudhry Logistics",
+    vehicle_number: "LHE-7860",
+    total_balance: 8500,
+  },
+  {
+    id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    name: "Haji Aslam & Sons",
+    vehicle_number: "KHI-9921",
+    total_balance: 0,
+  },
+];
+
+/**
+ * Bulk insert pending ledger transactions (credit/payment) into Supabase 'ledger_transactions' table
+ * and synchronize customer balances.
+ */
+export async function syncLedgerToCloud(
+  ledgerEntries: LedgerPayload[]
+): Promise<SyncResult> {
+  if (!ledgerEntries || ledgerEntries.length === 0) {
+    return { success: true, insertedCount: 0 };
+  }
+
+  try {
+    const supabase = await createClient();
+
+    // 1. Verify or auto-provision referenced customers
+    const customerIds = Array.from(
+      new Set(
+        ledgerEntries
+          .map((e) => e.customer_id)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
+    if (customerIds.length > 0) {
+      const { data: existingCustomers } = await supabase
+        .from("customers")
+        .select("id")
+        .in("id", customerIds);
+
+      const existingCustSet = new Set((existingCustomers || []).map((c) => c.id));
+      const missingCustIds = customerIds.filter((id) => !existingCustSet.has(id));
+
+      if (missingCustIds.length > 0) {
+        const defaultMap = new Map(KNOWN_DEFAULT_CUSTOMERS.map((c) => [c.id, c]));
+        const customersToCreate = missingCustIds.map((id) => {
+          const matched = defaultMap.get(id);
+          return {
+            id,
+            name: matched ? matched.name : `Customer ${id.slice(0, 8)}`,
+            vehicle_number: matched?.vehicle_number || null,
+            total_balance: matched?.total_balance ?? 0,
+            updated_at: new Date().toISOString(),
+          };
+        });
+
+        const { error: custUpsertError } = await supabase
+          .from("customers")
+          .upsert(customersToCreate, { onConflict: "id" });
+
+        if (custUpsertError) {
+          console.warn(
+            "Warning: Could not auto-provision customers:",
+            custUpsertError.message
+          );
+        }
+      }
+    }
+
+    // 2. Verify worker IDs against profiles
+    const workerIds = Array.from(
+      new Set(
+        ledgerEntries
+          .map((e) => e.worker_id)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
+    let validWorkerIds = new Set<string>();
+    if (workerIds.length > 0) {
+      const { data: existingProfiles } = await supabase
+        .from("profiles")
+        .select("id")
+        .in("id", workerIds);
+      validWorkerIds = new Set((existingProfiles || []).map((p) => p.id));
+    }
+
+    // 3. Format ledger records
+    const formattedEntries = ledgerEntries.map((e) => ({
+      customer_id: e.customer_id,
+      worker_id:
+        e.worker_id && validWorkerIds.has(e.worker_id) ? e.worker_id : null,
+      liters: e.liters ?? 0,
+      amount: e.amount ?? 0,
+      applied_sp: e.applied_sp ?? 0,
+      transaction_type: e.transaction_type || "credit",
+      created_at: e.created_at || new Date().toISOString(),
+    }));
+
+    const { data, error } = await supabase
+      .from("ledger_transactions")
+      .insert(formattedEntries)
+      .select("id");
+
+    if (error) {
+      const fullErrorMsg = [error.message, error.details, error.hint]
+        .filter(Boolean)
+        .join(" | ");
+      console.error("Supabase insert ledger_transactions error:", fullErrorMsg);
+      return { success: false, error: fullErrorMsg };
+    }
+
+    // 4. Update customer total balances in Supabase
+    const customerDeltas = new Map<string, number>();
+    for (const e of ledgerEntries) {
+      const delta = (e.transaction_type || "credit") === "credit" ? e.amount : -e.amount;
+      customerDeltas.set(
+        e.customer_id,
+        (customerDeltas.get(e.customer_id) || 0) + delta
+      );
+    }
+
+    for (const [custId, delta] of customerDeltas.entries()) {
+      try {
+        const { data: custData } = await supabase
+          .from("customers")
+          .select("total_balance")
+          .eq("id", custId)
+          .single();
+
+        if (custData) {
+          const currentBal = Number(custData.total_balance) || 0;
+          await supabase
+            .from("customers")
+            .update({
+              total_balance: currentBal + delta,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", custId);
+        }
+      } catch (balErr) {
+        console.warn(`Could not update balance for customer ${custId}:`, balErr);
+      }
+    }
+
+    return {
+      success: true,
+      insertedCount: data ? data.length : ledgerEntries.length,
+    };
+  } catch (err: unknown) {
+    const errorMsg =
+      err instanceof Error ? err.message : "Failed to sync ledger to cloud.";
+    console.error("syncLedgerToCloud exception:", err);
+    return { success: false, error: errorMsg };
+  }
+}
+
