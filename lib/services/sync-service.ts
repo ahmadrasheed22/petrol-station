@@ -3,9 +3,11 @@ import {
   syncShiftsToCloud,
   syncTransactionsToCloud,
   syncExpensesToCloud,
+  syncLedgerToCloud,
   type ShiftPayload,
   type TransactionPayload,
   type ExpensePayload,
+  type LedgerPayload,
 } from "@/actions/db-actions";
 
 export interface ProcessQueueResult {
@@ -13,6 +15,7 @@ export interface ProcessQueueResult {
   syncedShiftsCount: number;
   syncedSalesCount: number;
   syncedExpensesCount: number;
+  syncedLedgerCount: number;
   pendingRemainingCount: number;
   error?: string;
 }
@@ -34,7 +37,7 @@ export async function getPendingCount(): Promise<number> {
       .where("sync_status")
       .equals("pending")
       .count();
-    const pendingLedger = await db.pendingLedger
+    const pendingLedger = await db.pendingLedgerTransactions
       .where("sync_status")
       .equals("pending")
       .count();
@@ -44,6 +47,7 @@ export async function getPendingCount(): Promise<number> {
     return 0;
   }
 }
+
 
 /**
  * Processes un-synced offline records in Dexie and syncs them to Supabase.
@@ -58,6 +62,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
   let syncedShiftsCount = 0;
   let syncedSalesCount = 0;
   let syncedExpensesCount = 0;
+  let syncedLedgerCount = 0;
   const errors: string[] = [];
 
   try {
@@ -179,6 +184,46 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       }
     }
 
+    // 4. Process Pending Ledger Transactions -> ledger_transactions table
+    const pendingLedger = await db.pendingLedgerTransactions
+      .where("sync_status")
+      .equals("pending")
+      .toArray();
+
+    if (pendingLedger.length > 0) {
+      const ledgerPayloads: LedgerPayload[] = pendingLedger.map((tx) => ({
+        customer_id: tx.customer_id,
+        worker_id: tx.worker_id,
+        liters: tx.liters,
+        amount: tx.amount,
+        applied_sp: tx.applied_sp,
+        transaction_type: tx.transaction_type,
+        created_at: tx.created_at,
+      }));
+
+      const ledgerResult = await syncLedgerToCloud(ledgerPayloads);
+
+      if (ledgerResult.success) {
+        const ledgerIds = pendingLedger
+          .map((l) => l.id)
+          .filter((id): id is number => id !== undefined);
+
+        if (ledgerIds.length > 0) {
+          // Strictly update local Dexie status ONLY on success: true
+          await db.pendingLedgerTransactions
+            .where("id")
+            .anyOf(ledgerIds)
+            .modify({ sync_status: "synced" });
+        }
+        syncedLedgerCount = ledgerResult.insertedCount ?? pendingLedger.length;
+      } else {
+        // Server error or unreachable: strictly keep records as 'pending'
+        const errorDetails = `Ledger sync error: ${ledgerResult.error || "Unknown server error"}`;
+        console.error("SYNC FAILED:", errorDetails);
+        errors.push(errorDetails);
+      }
+    }
+
     const pendingRemainingCount = await getPendingCount();
 
     if (errors.length > 0) {
@@ -189,6 +234,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
         syncedShiftsCount,
         syncedSalesCount,
         syncedExpensesCount,
+        syncedLedgerCount,
         pendingRemainingCount,
         error: fullErrorMessage,
       };
@@ -199,6 +245,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       syncedShiftsCount,
       syncedSalesCount,
       syncedExpensesCount,
+      syncedLedgerCount,
       pendingRemainingCount,
     };
   } catch (err: unknown) {
@@ -211,9 +258,11 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       syncedShiftsCount: 0,
       syncedSalesCount,
       syncedExpensesCount,
+      syncedLedgerCount: 0,
       pendingRemainingCount,
       error: errorMsg,
     };
   }
 }
+
 

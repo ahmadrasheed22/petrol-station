@@ -71,7 +71,28 @@ ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ledger_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inventory_arrivals ENABLE ROW LEVEL SECURITY;
 
--- Baseline RLS Policies
-CREATE POLICY "Allow authenticated access to customers" ON public.customers FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated access to ledger_transactions" ON public.ledger_transactions FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated access to inventory_arrivals" ON public.inventory_arrivals FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- Baseline RLS Policies (Safe creation)
+DO $$
+BEGIN
+  -- Customers policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customers' AND policyname = 'Allow authenticated access to customers') THEN
+    CREATE POLICY "Allow authenticated access to customers" ON public.customers FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customers' AND policyname = 'Allow anon access to customers') THEN
+    CREATE POLICY "Allow anon access to customers" ON public.customers FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+
+  -- Ledger transactions policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ledger_transactions' AND policyname = 'Allow authenticated access to ledger_transactions') THEN
+    CREATE POLICY "Allow authenticated access to ledger_transactions" ON public.ledger_transactions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ledger_transactions' AND policyname = 'Allow anon access to ledger_transactions') THEN
+    CREATE POLICY "Allow anon access to ledger_transactions" ON public.ledger_transactions FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+
+  -- Inventory arrivals policies
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'inventory_arrivals' AND policyname = 'Allow authenticated access to inventory_arrivals') THEN
+    CREATE POLICY "Allow authenticated access to inventory_arrivals" ON public.inventory_arrivals FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
