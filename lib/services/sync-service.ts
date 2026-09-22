@@ -4,10 +4,12 @@ import {
   syncTransactionsToCloud,
   syncExpensesToCloud,
   syncLedgerToCloud,
+  syncInventoryToCloud,
   type ShiftPayload,
   type TransactionPayload,
   type ExpensePayload,
   type LedgerPayload,
+  type InventoryPayload,
 } from "@/actions/db-actions";
 
 export interface ProcessQueueResult {
@@ -16,6 +18,7 @@ export interface ProcessQueueResult {
   syncedSalesCount: number;
   syncedExpensesCount: number;
   syncedLedgerCount: number;
+  syncedInventoryCount: number;
   pendingRemainingCount: number;
   error?: string;
 }
@@ -41,7 +44,17 @@ export async function getPendingCount(): Promise<number> {
       .where("sync_status")
       .equals("pending")
       .count();
-    return pendingShifts + pendingSales + pendingExpenses + pendingLedger;
+    const pendingInventory = await db.pendingInventory
+      .where("sync_status")
+      .equals("pending")
+      .count();
+    return (
+      pendingShifts +
+      pendingSales +
+      pendingExpenses +
+      pendingLedger +
+      pendingInventory
+    );
   } catch (error) {
     console.error("Failed to query pending records count from Dexie:", error);
     return 0;
@@ -63,6 +76,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
   let syncedSalesCount = 0;
   let syncedExpensesCount = 0;
   let syncedLedgerCount = 0;
+  let syncedInventoryCount = 0;
   const errors: string[] = [];
 
   try {
@@ -224,6 +238,47 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       }
     }
 
+    // 5. Process Pending Inventory -> inventory_arrivals table
+    const pendingInventory = await db.pendingInventory
+      .where("sync_status")
+      .equals("pending")
+      .toArray();
+
+    if (pendingInventory.length > 0) {
+      const inventoryPayloads: InventoryPayload[] = pendingInventory.map(
+        (item) => ({
+          product_id: item.product_id,
+          billed_liters: item.billed_liters,
+          actual_received_liters: item.actual_received_liters,
+          cost_per_liter: item.cost_per_liter,
+          created_at: item.created_at,
+        })
+      );
+
+      const inventoryResult = await syncInventoryToCloud(inventoryPayloads);
+
+      if (inventoryResult.success) {
+        const inventoryIds = pendingInventory
+          .map((i) => i.id)
+          .filter((id): id is number => id !== undefined);
+
+        if (inventoryIds.length > 0) {
+          // Strictly update local Dexie status ONLY on success: true
+          await db.pendingInventory
+            .where("id")
+            .anyOf(inventoryIds)
+            .modify({ sync_status: "synced" });
+        }
+        syncedInventoryCount =
+          inventoryResult.insertedCount ?? pendingInventory.length;
+      } else {
+        // Server error or unreachable: strictly keep records as 'pending'
+        const errorDetails = `Inventory sync error: ${inventoryResult.error || "Unknown server error"}`;
+        console.error("SYNC FAILED:", errorDetails);
+        errors.push(errorDetails);
+      }
+    }
+
     const pendingRemainingCount = await getPendingCount();
 
     if (errors.length > 0) {
@@ -235,6 +290,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
         syncedSalesCount,
         syncedExpensesCount,
         syncedLedgerCount,
+        syncedInventoryCount,
         pendingRemainingCount,
         error: fullErrorMessage,
       };
@@ -246,6 +302,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       syncedSalesCount,
       syncedExpensesCount,
       syncedLedgerCount,
+      syncedInventoryCount,
       pendingRemainingCount,
     };
   } catch (err: unknown) {
@@ -259,6 +316,7 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       syncedSalesCount,
       syncedExpensesCount,
       syncedLedgerCount: 0,
+      syncedInventoryCount: 0,
       pendingRemainingCount,
       error: errorMsg,
     };

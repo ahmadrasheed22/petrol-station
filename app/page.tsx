@@ -44,7 +44,13 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/inventory"
+              className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs font-semibold text-amber-400 transition-colors hover:bg-amber-500/20 hover:text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+            >
+              Inventory & Tanks
+            </Link>
             <Link
               href="/khata"
               className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-2 text-xs font-semibold text-indigo-400 transition-colors hover:bg-indigo-500/20 hover:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
