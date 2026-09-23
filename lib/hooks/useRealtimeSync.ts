@@ -69,19 +69,25 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
     }, debounceMs);
   }, [autoRefresh, debounceMs, router]);
 
+  const tablesKey = tables.join(",");
+
   useEffect(() => {
     const supabase = createClient();
-    const channelName = `owner-realtime-sync-${Date.now()}`;
+    const uniqueId = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 9);
+    const channelName = `owner-realtime-${uniqueId}-${Date.now()}`;
     let channel: RealtimeChannel | null = null;
 
     setStatus("CONNECTING");
 
     try {
+      // 1. Create the channel first
       channel = supabase.channel(channelName);
 
-      // Subscribe to each target table for postgres_changes
+      // 2. Loop over tables and attach all postgres_changes listeners BEFORE subscribe
       tables.forEach((table) => {
-        channel = channel!.on(
+        channel!.on(
           "postgres_changes" as any,
           {
             event: "*", // captures INSERT, UPDATE, DELETE
@@ -108,6 +114,7 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
         );
       });
 
+      // 3. Call .subscribe() only once at the very end of setup
       channel.subscribe((subStatus) => {
         if (subStatus === "SUBSCRIBED") {
           setStatus("CONNECTED");
@@ -131,7 +138,7 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
         supabase.removeChannel(channel);
       }
     };
-  }, [tables, triggerRevalidation]);
+  }, [tablesKey, triggerRevalidation]);
 
   return {
     status,

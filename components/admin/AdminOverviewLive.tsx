@@ -12,18 +12,20 @@ interface AdminOverviewLiveProps {
 export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProps) {
   const [data, setData] = useState<OverviewStats>(initialData);
   const [highlightedShiftId, setHighlightedShiftId] = useState<string | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
+  const [lastSyncTime, setLastSyncTime] = useState<string>(() =>
+    new Date().toLocaleTimeString("en-US")
+  );
 
   // Keep state updated when router.refresh() supplies new server-rendered initialData
   useEffect(() => {
     setData(initialData);
-    setLastSyncTime(new Date().toLocaleTimeString());
+    setLastSyncTime(new Date().toLocaleTimeString("en-US"));
   }, [initialData]);
 
   // Real-time listener callback
   const handleRealtimePayload = useCallback((info: RealtimePayloadInfo) => {
     const { table, eventType, newRecord } = info;
-    setLastSyncTime(new Date().toLocaleTimeString());
+    setLastSyncTime(new Date().toLocaleTimeString("en-US"));
 
     if (table === "shifts" && newRecord) {
       const shiftId = newRecord.id;
@@ -136,7 +138,9 @@ export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProp
           </div>
           <p className="mt-1 text-sm text-zinc-400">
             Real-time reconciliation of dispenser meter readings, cash collections, and shift variances.
-            <span className="ml-2 text-xs text-zinc-500 font-mono">Last update: {lastSyncTime}</span>
+            <span suppressHydrationWarning className="ml-2 text-xs text-zinc-500 font-mono">
+              Last update: {lastSyncTime}
+            </span>
           </p>
         </div>
 
