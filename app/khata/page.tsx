@@ -143,7 +143,7 @@ export default async function KhataPage() {
           <CustomerBalances />
         </div>
 
-        {/* Recent Entries: Today's Logged Expenses & Credit Sales with Edit/Delete */}
+        {/* Recent Entries: Today's Logged Expenses & Credit Sales (Fraud-Protected & Immutable) */}
         <RecentEntries />
       </main>
     </div>

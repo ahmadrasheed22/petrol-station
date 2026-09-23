@@ -147,10 +147,6 @@ export default async function DashboardPage({
                 <span className="capitalize text-zinc-200">{profile.role}</span>
               </div>
               <div>
-                <span className="text-zinc-500">User ID:</span>{" "}
-                <span className="text-zinc-400">{user.id}</span>
-              </div>
-              <div>
                 <span className="text-zinc-500">Last Sign In:</span>{" "}
                 {user.last_sign_in_at
                   ? new Date(user.last_sign_in_at).toLocaleString()
@@ -173,7 +169,7 @@ export default async function DashboardPage({
           <ExpenseForm />
         </div>
 
-        {/* Recent Entries: Today's Logged Expenses & Credit Sales with Edit/Delete */}
+        {/* Recent Entries: Today's Logged Expenses & Credit Sales (Fraud-Protected & Immutable) */}
         <RecentEntries />
 
         {/* Dashboard Operations Grid */}
