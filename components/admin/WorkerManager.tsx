@@ -369,7 +369,7 @@ export default function WorkerManager({
                         </span>
                       </td>
                       <td className="py-3.5 pr-2 text-right text-zinc-400">
-                        {new Date(worker.created_at).toLocaleDateString(undefined, {
+                        {new Date(worker.created_at).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                           year: "numeric",

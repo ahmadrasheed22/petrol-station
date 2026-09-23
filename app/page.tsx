@@ -4,6 +4,7 @@ import SyncIndicator from "@/components/SyncIndicator";
 import ShiftDutyManager from "@/components/ShiftDutyManager";
 import ExpenseForm from "@/components/ExpenseForm";
 import DashboardStats from "@/components/DashboardStats";
+import RecentEntries from "@/components/RecentEntries";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -171,6 +172,9 @@ export default async function DashboardPage({
           />
           <ExpenseForm />
         </div>
+
+        {/* Recent Entries: Today's Logged Expenses & Credit Sales with Edit/Delete */}
+        <RecentEntries />
 
         {/* Dashboard Operations Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
