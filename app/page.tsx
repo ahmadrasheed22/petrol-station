@@ -7,7 +7,11 @@ import DashboardStats from "@/components/DashboardStats";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ view?: string }>;
+}) {
   const authData = await getAuthenticatedUserProfile();
 
   if (!authData) {
@@ -15,9 +19,25 @@ export default async function DashboardPage() {
   }
 
   const { user, profile } = authData;
+  const resolvedParams = searchParams ? await searchParams : undefined;
+
+  // Role-Based Routing: If logged-in user is an owner, route to /admin unless previewing worker terminal
+  if (profile.role === "owner" && resolvedParams?.view !== "worker") {
+    redirect("/admin");
+  }
+
+  const isOwnerPreview = profile.role === "owner" && resolvedParams?.view === "worker";
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
+      {isOwnerPreview && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-center text-xs font-medium text-amber-400 flex items-center justify-center gap-2">
+          <span>👑 You are previewing the Worker Terminal as Station Owner.</span>
+          <Link href="/admin" className="underline hover:text-amber-300 font-semibold ml-2">
+            Return to Admin Hub &rarr;
+          </Link>
+        </div>
+      )}
       {/* Navigation / Header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
