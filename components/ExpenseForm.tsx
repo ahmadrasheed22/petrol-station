@@ -5,7 +5,12 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
 import { addPendingExpense } from "@/lib/services/offline-service";
 
-const CATEGORIES = ["Maintenance", "Supplies", "Utility", "Other"];
+const CATEGORIES = [
+  "Machine Maintenance",
+  "Guest/Hospitality",
+  "Utility Bills",
+  "Miscellaneous",
+];
 
 export default function ExpenseForm() {
   const [mounted, setMounted] = useState(false);

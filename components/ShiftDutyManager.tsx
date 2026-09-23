@@ -379,7 +379,7 @@ export default function ShiftDutyManager({
               >
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} (Default: Rs. {p.current_sp ?? 0}/L)
+                    {p.name}
                   </option>
                 ))}
               </select>
