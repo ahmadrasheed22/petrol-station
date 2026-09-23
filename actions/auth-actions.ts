@@ -17,6 +17,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
   }
 
   let errorMessage: string | null = null;
+  let targetUrl = "/";
 
   try {
     const supabase = await createClient();
@@ -35,7 +36,10 @@ export async function login(email: string, password: string): Promise<AuthRespon
 
       if (user) {
         const { ensureUserProfile } = await import("@/lib/services/user-service");
-        await ensureUserProfile(user);
+        const profile = await ensureUserProfile(user);
+        if (profile.role === "owner") {
+          targetUrl = "/admin";
+        }
       }
     }
   } catch (err: unknown) {
@@ -50,7 +54,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
     return { error: errorMessage };
   }
 
-  redirect("/");
+  redirect(targetUrl);
 }
 
 /**
