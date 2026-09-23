@@ -3,18 +3,21 @@
 import { getAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
+import { cleanPhoneNumber, phoneToWorkerEmail, isWorkerEmail, workerEmailToPhone, formatPhoneDisplay } from "@/lib/utils/phone";
 import { revalidatePath } from "next/cache";
 
 export interface CreateWorkerInput {
   name: string;
-  email: string;
+  phone: string;
   password: string;
+  email?: string; // Optional legacy
 }
 
 export interface WorkerItem {
   id: string;
   name: string;
-  email: string;
+  phone?: string;
+  email?: string;
   role: string;
   created_at: string;
   last_sign_in?: string;
@@ -54,12 +57,13 @@ export async function isServiceRoleConfigured(): Promise<boolean> {
 
 /**
  * Creates a new worker user account securely using the Supabase Service Role Key (Admin API).
- * Bypasses email verification, assigns role 'worker', and preserves the active Owner's session.
+ * Bypasses email verification, assigns role 'worker', and uses an internal dummy domain
+ * for phone-based rural workers who do not have email.
  */
 export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
   success: boolean;
   error?: string;
-  user?: { id: string; email: string; name: string };
+  user?: { id: string; phone: string; name: string };
 }> {
   try {
     // 1. Authorize: Ensure caller is an authenticated Owner
@@ -73,14 +77,15 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
 
     // 2. Validate inputs
     const name = input.name?.trim();
-    const email = input.email?.trim().toLowerCase();
+    const rawPhone = input.phone?.trim() || "";
+    const cleanPhone = cleanPhoneNumber(rawPhone);
     const password = input.password;
 
     if (!name || name.length < 2) {
       return { success: false, error: "Worker name must be at least 2 characters." };
     }
-    if (!email || !email.includes("@")) {
-      return { success: false, error: "A valid email address is required." };
+    if (!cleanPhone || cleanPhone.length < 7) {
+      return { success: false, error: "A valid phone number (at least 7 digits) is required." };
     }
     if (!password || password.length < 6) {
       return { success: false, error: "Password must be at least 6 characters long." };
@@ -96,27 +101,35 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
       };
     }
 
-    // 4. Create user via Supabase Admin Auth (auto-confirms email, does not affect active session)
+    // 4. Generate internal dummy email strictly under the hood
+    const dummyEmail = phoneToWorkerEmail(cleanPhone);
+
+    // 5. Create user via Supabase Admin Auth (auto-confirms, does not affect active owner session)
     const { data: createData, error: createError } = await adminClient.auth.admin.createUser({
-      email,
+      email: dummyEmail,
       password,
       email_confirm: true,
       user_metadata: {
         name,
+        phone: cleanPhone,
         role: "worker",
       },
     });
 
     if (createError || !createData.user) {
+      let friendlyError = createError?.message || "Failed to create worker account in Supabase Auth.";
+      if (friendlyError.toLowerCase().includes("already registered")) {
+        friendlyError = `A worker account with phone number "${formatPhoneDisplay(cleanPhone)}" already exists.`;
+      }
       return {
         success: false,
-        error: createError?.message || "Failed to create worker account in Supabase Auth.",
+        error: friendlyError,
       };
     }
 
     const newUserId = createData.user.id;
 
-    // 5. Ensure profile entry exists with role = 'worker'
+    // 6. Ensure profile entry exists with role = 'worker'
     const { error: profileError } = await adminClient.from("profiles").upsert(
       {
         id: newUserId,
@@ -138,7 +151,7 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
       success: true,
       user: {
         id: newUserId,
-        email,
+        phone: cleanPhone,
         name,
       },
     };
@@ -153,7 +166,8 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
 
 /**
  * Retrieves the list of all worker accounts.
- * Combines Supabase Auth users (for email & sign-in timestamps) and public.profiles.
+ * Combines Supabase Auth users (for phone/email & sign-in timestamps) and public.profiles.
+ * Never exposes the internal @pump.worker dummy domain.
  */
 export async function getWorkersList(): Promise<WorkerItem[]> {
   try {
@@ -177,14 +191,19 @@ export async function getWorkersList(): Promise<WorkerItem[]> {
       for (const u of usersData?.users || []) {
         const prof = profilesMap.get(u.id);
         const role = prof?.role || u.user_metadata?.role || "worker";
-        const name = prof?.name || u.user_metadata?.name || u.email?.split("@")[0] || "Worker";
+        const name = prof?.name || u.user_metadata?.name || "Worker";
 
         // Include workers
         if (role === "worker") {
+          const rawEmail = u.email || "";
+          const isDummy = isWorkerEmail(rawEmail);
+          const phone = u.user_metadata?.phone || (isDummy ? workerEmailToPhone(rawEmail) : undefined);
+
           workers.push({
             id: u.id,
             name,
-            email: u.email || "",
+            phone: phone ? formatPhoneDisplay(phone) : undefined,
+            email: isDummy ? undefined : u.email,
             role: "worker",
             created_at: u.created_at,
             last_sign_in: u.last_sign_in_at || undefined,
@@ -207,7 +226,7 @@ export async function getWorkersList(): Promise<WorkerItem[]> {
     return (profiles || []).map((p) => ({
       id: p.id,
       name: p.name || "Worker",
-      email: "Protected (Set Service Role Key to view)",
+      phone: "Phone Auth Active",
       role: p.role,
       created_at: p.created_at || new Date().toISOString(),
     }));

@@ -95,7 +95,7 @@ export default async function KhataPage() {
                   {profile.role}
                 </span>
               </div>
-              <span className="text-xs text-zinc-400">{user.email}</span>
+              <span className="text-xs text-zinc-400">{profile.phone || user.email}</span>
             </div>
             <form action={logout}>
               <button

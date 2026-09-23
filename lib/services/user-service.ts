@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isWorkerEmail, workerEmailToPhone, formatPhoneDisplay } from "@/lib/utils/phone";
 import type { User } from "@supabase/supabase-js";
 
 export interface UserProfile {
@@ -6,6 +7,7 @@ export interface UserProfile {
   name: string;
   role: "owner" | "worker";
   email?: string;
+  phone?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -20,9 +22,14 @@ export interface AuthenticatedUserWithProfile {
  * and returns the full profile record.
  */
 export async function ensureUserProfile(user: User): Promise<UserProfile> {
+  const isDummy = isWorkerEmail(user.email);
+  const rawPhone = user.user_metadata?.phone || (isDummy ? workerEmailToPhone(user.email) : undefined);
+  const phone = rawPhone ? formatPhoneDisplay(rawPhone) : undefined;
+  const publicEmail = isDummy ? undefined : user.email;
+
   const fallbackName =
     user.user_metadata?.name ||
-    user.email?.split("@")[0] ||
+    (phone ? `Worker (${phone})` : user.email?.split("@")[0]) ||
     `Worker ${user.id.slice(0, 6)}`;
   const fallbackRole = (user.user_metadata?.role as "owner" | "worker") || "worker";
 
@@ -39,7 +46,8 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
         id: existing.id,
         name: existing.name || fallbackName,
         role: (existing.role as "owner" | "worker") || fallbackRole,
-        email: user.email,
+        email: publicEmail,
+        phone,
         created_at: existing.created_at,
         updated_at: existing.updated_at,
       };
@@ -56,7 +64,8 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
 
     return {
       ...newProfile,
-      email: user.email,
+      email: publicEmail,
+      phone,
     };
   } catch (err) {
     console.warn("Failed to ensure user profile:", err);
@@ -64,7 +73,8 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
       id: user.id,
       name: fallbackName,
       role: fallbackRole,
-      email: user.email,
+      email: publicEmail,
+      phone,
     };
   }
 }
