@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { createWorkerAccount, type WorkerItem } from "@/actions/admin-actions";
+import { formatPhoneDisplay } from "@/lib/utils/phone";
 
 interface WorkerManagerProps {
   initialWorkers: WorkerItem[];
@@ -14,7 +15,7 @@ export default function WorkerManager({
 }: WorkerManagerProps) {
   const [workers, setWorkers] = useState<WorkerItem[]>(initialWorkers);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
@@ -30,10 +31,10 @@ export default function WorkerManager({
     e.preventDefault();
     setStatusMessage(null);
 
-    if (!name.trim() || !email.trim() || !password) {
+    if (!name.trim() || !phone.trim() || !password) {
       setStatusMessage({
         type: "error",
-        text: "Please fill in all required fields (Name, Email, Password).",
+        text: "Please fill in all required fields (Name, Phone Number, Password).",
       });
       return;
     }
@@ -41,7 +42,7 @@ export default function WorkerManager({
     startTransition(async () => {
       const res = await createWorkerAccount({
         name: name.trim(),
-        email: email.trim(),
+        phone: phone.trim(),
         password,
       });
 
@@ -54,14 +55,14 @@ export default function WorkerManager({
         setStatusMessage({
           type: "success",
           text: `Worker account created successfully for "${name}"!`,
-          details: `Worker can immediately sign in with email: ${email}`,
+          details: `Worker can immediately sign in using Phone: ${formatPhoneDisplay(phone)}`,
         });
 
         // Add to local state
         const newWorker: WorkerItem = {
           id: res.user?.id || Date.now().toString(),
           name,
-          email,
+          phone: formatPhoneDisplay(phone),
           role: "worker",
           created_at: new Date().toISOString(),
         };
@@ -69,7 +70,7 @@ export default function WorkerManager({
 
         // Reset form
         setName("");
-        setEmail("");
+        setPhone("");
         setPassword("");
       }
     });
@@ -88,7 +89,8 @@ export default function WorkerManager({
   const filteredWorkers = workers.filter(
     (w) =>
       w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.email.toLowerCase().includes(searchQuery.toLowerCase())
+      (w.phone && w.phone.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (w.email && w.email.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -193,18 +195,30 @@ export default function WorkerManager({
 
             <div>
               <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-1.5">
-                Worker Login Email
+                Worker Phone Number
               </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. usman@petrolstation.com"
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all"
-              />
-              <p className="mt-1 text-[11px] text-zinc-500">
-                Email verification is automatically bypassed via Admin API.
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-zinc-400">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                    />
+                  </svg>
+                </div>
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0300 1234567"
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all font-mono"
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-400">
+                Used as the worker&apos;s login ID. Attendants do not need an email address.
               </p>
             </div>
 
@@ -339,7 +353,7 @@ export default function WorkerManager({
                 <thead>
                   <tr className="border-b border-zinc-800 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                     <th className="pb-3 pl-2">Worker</th>
-                    <th className="pb-3">Login Email</th>
+                    <th className="pb-3">Phone / Login ID</th>
                     <th className="pb-3">Role</th>
                     <th className="pb-3 pr-2 text-right">Created</th>
                   </tr>
@@ -361,7 +375,19 @@ export default function WorkerManager({
                         </div>
                       </td>
                       <td className="py-3.5 text-zinc-300 font-mono">
-                        {worker.email}
+                        <div className="flex items-center gap-1.5">
+                          <svg className="h-3.5 w-3.5 text-amber-400/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                            />
+                          </svg>
+                          <span className="font-semibold text-zinc-200">
+                            {worker.phone || (worker.email && !worker.email.includes("@pump.worker") ? worker.email : "—")}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3.5">
                         <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">

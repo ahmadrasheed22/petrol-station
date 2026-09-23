@@ -44,13 +44,18 @@ export function useUserRole() {
           .eq("id", user.id)
           .maybeSingle();
 
+        const isDummy = user.email?.toLowerCase().endsWith("@pump.worker");
+        const fallbackId = isDummy
+          ? (user.user_metadata?.phone || user.email?.split("@")[0] || "Worker")
+          : (user.email?.split("@")[0] || "Worker");
+
         if (isMounted) {
           if (profile) {
             setRole((profile.role as "owner" | "worker") || "worker");
-            setUserName(profile.name || user.email?.split("@")[0] || "Worker");
+            setUserName(profile.name || fallbackId);
           } else {
             setRole("worker");
-            setUserName(user.email?.split("@")[0] || "Worker");
+            setUserName(fallbackId);
           }
         }
       } catch (err) {

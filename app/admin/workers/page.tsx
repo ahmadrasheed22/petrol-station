@@ -3,7 +3,7 @@ import WorkerManager from "@/components/admin/WorkerManager";
 
 export const metadata = {
   title: "Worker Management | Station Admin Hub",
-  description: "Create new worker accounts with pre-verified credentials and manage station staff.",
+  description: "Create new worker accounts with phone-based credentials and manage station staff.",
 };
 
 export default async function ManageWorkersPage() {
@@ -20,7 +20,7 @@ export default async function ManageWorkersPage() {
           Worker Staff & Team Management
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Provision worker login credentials directly via Supabase Admin API and review your station&apos;s active workforce.
+          Provision worker login credentials directly via mobile phone numbers and review your station&apos;s active workforce.
         </p>
       </div>
 
