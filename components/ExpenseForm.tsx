@@ -41,11 +41,17 @@ export default function ExpenseForm() {
   );
 
   const amount = parseFloat(amountStr) || 0;
+  const hasActiveDuty = Boolean(activeShift);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMsg(null);
     setErrorMsg(null);
+
+    if (!hasActiveDuty) {
+      setErrorMsg("Form locked: You must have an active shift duty to log expenses.");
+      return;
+    }
 
     if (amount <= 0) {
       setErrorMsg("Please enter a valid amount (greater than Rs. 0).");
@@ -127,12 +133,32 @@ export default function ExpenseForm() {
             </div>
           </div>
 
-          {!activeShift && (
-            <span className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
-              No Active Shift
+          {!hasActiveDuty ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+              <svg className="h-3.5 w-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <span>No Active Duty (Locked)</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Duty Active</span>
             </span>
           )}
         </div>
+
+        {/* Lock Banner if no active duty */}
+        {!hasActiveDuty && (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 flex items-start gap-2.5">
+            <svg className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <div>
+              <span className="font-semibold">Form Locked:</span> You must start a shift duty in the terminal before recording expenses.
+            </div>
+          </div>
+        )}
 
         {/* Feedback Messages */}
         {successMsg && (
@@ -161,66 +187,71 @@ export default function ExpenseForm() {
 
         {/* Form Inputs */}
         <form id="expense-form" onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label
-              htmlFor={categoryInputId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Category
-            </label>
-            <select
-              id={categoryInputId}
-              name="category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
+          <fieldset disabled={!hasActiveDuty || isSubmitting} className={`space-y-4 transition-opacity ${!hasActiveDuty ? "opacity-50" : ""}`}>
+            <div>
+              <label
+                htmlFor={categoryInputId}
+                className="block text-xs font-medium text-zinc-400 mb-1.5"
+              >
+                Category
+              </label>
+              <select
+                id={categoryInputId}
+                name="category"
+                value={category}
+                disabled={!hasActiveDuty || isSubmitting}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors disabled:cursor-not-allowed"
+              >
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label
-              htmlFor={amountInputId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Amount (Rs)
-            </label>
-            <input
-              id={amountInputId}
-              name="amount"
-              type="number"
-              step="0.01"
-              min="0.01"
-              placeholder="0.00"
-              value={amountStr}
-              onChange={(e) => setAmountStr(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
-              required
-            />
-          </div>
+            <div>
+              <label
+                htmlFor={amountInputId}
+                className="block text-xs font-medium text-zinc-400 mb-1.5"
+              >
+                Amount (Rs)
+              </label>
+              <input
+                id={amountInputId}
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder={!hasActiveDuty ? "Duty required to enter amount" : "0.00"}
+                value={amountStr}
+                disabled={!hasActiveDuty || isSubmitting}
+                onChange={(e) => setAmountStr(e.target.value)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors disabled:cursor-not-allowed"
+                required
+              />
+            </div>
 
-          <div>
-            <label
-              htmlFor={descriptionInputId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Description
-            </label>
-            <input
-              id={descriptionInputId}
-              name="description"
-              type="text"
-              placeholder="e.g. Generator Maintenance, Tea & Water, Station Cleaning"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
-            />
-          </div>
+            <div>
+              <label
+                htmlFor={descriptionInputId}
+                className="block text-xs font-medium text-zinc-400 mb-1.5"
+              >
+                Description
+              </label>
+              <input
+                id={descriptionInputId}
+                name="description"
+                type="text"
+                placeholder={!hasActiveDuty ? "Locked until duty starts" : "e.g. Generator Maintenance, Tea & Water, Station Cleaning"}
+                value={description}
+                disabled={!hasActiveDuty || isSubmitting}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors disabled:cursor-not-allowed"
+              />
+            </div>
+          </fieldset>
         </form>
       </div>
 
@@ -228,10 +259,18 @@ export default function ExpenseForm() {
         <button
           type="submit"
           form="expense-form"
-          disabled={isSubmitting}
-          className="w-full rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:opacity-50 cursor-pointer"
+          disabled={!hasActiveDuty || isSubmitting}
+          className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
+            !hasActiveDuty
+              ? "bg-zinc-800 text-zinc-400 opacity-50 cursor-not-allowed border border-zinc-700/50"
+              : "bg-amber-600 hover:bg-amber-500 shadow-amber-950/50 cursor-pointer"
+          }`}
         >
-          {isSubmitting ? "Saving Expense..." : "Log Expense Record (Offline)"}
+          {isSubmitting
+            ? "Saving Expense..."
+            : !hasActiveDuty
+            ? "Start a duty to log expenses"
+            : "Log Expense Record (Offline)"}
         </button>
       </div>
     </div>
