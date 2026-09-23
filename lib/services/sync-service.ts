@@ -90,6 +90,17 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       const shiftPayloads: ShiftPayload[] = pendingShifts.map((shift) => ({
         shift_id: shift.shift_id,
         user_id: shift.user_id,
+        worker_name: shift.worker_name,
+        product_id: shift.product_id,
+        product_name: shift.product_name,
+        price_per_liter: shift.price_per_liter ?? 0,
+        opening_meter: shift.opening_meter ?? 0,
+        closing_meter: shift.closing_meter ?? 0,
+        testing_liters: shift.testing_liters ?? 0,
+        total_liters: shift.total_liters ?? 0,
+        expected_cash: shift.expected_cash ?? 0,
+        actual_cash: shift.actual_cash ?? 0,
+        shortage_amount: shift.shortage_amount ?? 0,
         start_time: shift.start_time,
         end_time: shift.end_time,
         created_at: shift.created_at,
@@ -125,16 +136,20 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
 
     if (pendingSales.length > 0) {
       const transactionPayloads: TransactionPayload[] = pendingSales.map(
-        (sale) => ({
-          shift_id: sale.shift_id,
-          product_id: sale.product_id,
-          type: "sale",
-          liters: sale.total_liters,
-          applied_sp: sale.applied_sp,
-          applied_cp: sale.applied_cp,
-          total_amount: sale.total_liters * sale.applied_sp,
-          created_at: sale.created_at,
-        })
+        (sale) => {
+          const price = sale.price_per_liter ?? sale.applied_sp ?? 0;
+          return {
+            shift_id: sale.shift_id,
+            product_id: sale.product_id,
+            type: "sale",
+            liters: sale.total_liters,
+            price_per_liter: price,
+            applied_sp: price,
+            applied_cp: sale.applied_cp,
+            total_amount: sale.total_liters * price,
+            created_at: sale.created_at,
+          };
+        }
       );
 
       const salesResult = await syncTransactionsToCloud(transactionPayloads);
@@ -205,15 +220,20 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       .toArray();
 
     if (pendingLedger.length > 0) {
-      const ledgerPayloads: LedgerPayload[] = pendingLedger.map((tx) => ({
-        customer_id: tx.customer_id,
-        worker_id: tx.worker_id,
-        liters: tx.liters,
-        amount: tx.amount,
-        applied_sp: tx.applied_sp,
-        transaction_type: tx.transaction_type,
-        created_at: tx.created_at,
-      }));
+      const ledgerPayloads: LedgerPayload[] = pendingLedger.map((tx) => {
+        const price = tx.price_per_liter ?? tx.applied_sp ?? 0;
+        return {
+          customer_id: tx.customer_id,
+          customer_name: tx.customer_name,
+          worker_id: tx.worker_id,
+          liters: tx.liters,
+          amount: tx.amount,
+          price_per_liter: price,
+          applied_sp: price,
+          transaction_type: tx.transaction_type,
+          created_at: tx.created_at,
+        };
+      });
 
       const ledgerResult = await syncLedgerToCloud(ledgerPayloads);
 

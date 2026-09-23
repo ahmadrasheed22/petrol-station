@@ -25,6 +25,7 @@ const DEFAULT_PRODUCTS: Product[] = [
 export default function CreditSaleForm() {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [customerName, setCustomerName] = useState<string>("");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [litersStr, setLitersStr] = useState<string>("");
@@ -70,8 +71,9 @@ export default function CreditSaleForm() {
       // 1. Ensure offline customers are cached
       try {
         const cached = await getOfflineCustomers();
-        if (cached && cached.length > 0 && !selectedCustomerId) {
+        if (cached && cached.length > 0 && !customerName) {
           setSelectedCustomerId(cached[0].id);
+          setCustomerName(cached[0].name);
         }
       } catch (err) {
         console.error("Failed to load initial offline customers:", err);
@@ -110,13 +112,6 @@ export default function CreditSaleForm() {
     initData();
   }, []);
 
-  // Update selected customer if none selected yet and live list updates
-  useEffect(() => {
-    if (liveCustomers && liveCustomers.length > 0 && !selectedCustomerId) {
-      setSelectedCustomerId(liveCustomers[0].id);
-    }
-  }, [liveCustomers, selectedCustomerId]);
-
   const liters = parseFloat(litersStr) || 0;
   const pricePerLiter = parseFloat(pricePerLiterStr) || 0;
   const calculatedTotal = liters * pricePerLiter;
@@ -132,18 +127,27 @@ export default function CreditSaleForm() {
     }
   };
 
+  const handleCustomerSelect = (nameOrId: string) => {
+    const matched = (liveCustomers || []).find(
+      (c) => c.id === nameOrId || c.name.toLowerCase() === nameOrId.toLowerCase()
+    );
+    if (matched) {
+      setSelectedCustomerId(matched.id);
+      setCustomerName(matched.name);
+    } else {
+      setSelectedCustomerId("");
+      setCustomerName(nameOrId);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMsg(null);
     setErrorMsg(null);
 
-    if (!selectedCustomerId) {
-      setErrorMsg("Please select a customer.");
-      return;
-    }
-
-    if (!selectedProductId) {
-      setErrorMsg("Please select a fuel product.");
+    const targetCustomerName = customerName.trim();
+    if (!targetCustomerName) {
+      setErrorMsg("Please enter or select a customer name.");
       return;
     }
 
@@ -159,18 +163,16 @@ export default function CreditSaleForm() {
 
     setIsSubmitting(true);
     try {
-      const customer = (liveCustomers || []).find(
-        (c) => c.id === selectedCustomerId
-      );
-      const customerName = customer ? customer.name : "Customer";
       const product = products.find((p) => p.id === selectedProductId);
       const productName = product ? product.name : "Fuel";
 
       await addPendingLedgerTx({
-        customer_id: selectedCustomerId,
+        customer_id: selectedCustomerId || undefined,
+        customer_name: targetCustomerName,
         worker_id: activeShift?.user_id,
         liters,
         amount: finalAmount,
+        price_per_liter: pricePerLiter,
         applied_sp: pricePerLiter,
         transaction_type: "credit",
       });
@@ -179,7 +181,7 @@ export default function CreditSaleForm() {
         `Credit sale of ${liters}L ${productName} (Rs. ${finalAmount.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        })}) recorded for ${customerName}!`
+        })}) recorded for ${targetCustomerName}!`
       );
 
       // Reset input fields
@@ -268,32 +270,41 @@ export default function CreditSaleForm() {
 
         {/* Form Inputs */}
         <form id="credit-sale-form" onSubmit={handleSubmit} className="space-y-4">
-          {/* Customer Dropdown */}
+          {/* Customer Input (Type any name on the fly or select existing) */}
           <div>
-            <label
-              htmlFor={customerSelectId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Select Customer (Khata Account)
-            </label>
-            <select
-              id={customerSelectId}
-              name="customer_id"
-              value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
-              disabled={customerList.length === 0}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors disabled:opacity-50"
-            >
-              {customerList.length === 0 ? (
-                <option value="">No customers found</option>
-              ) : (
-                customerList.map((c: CustomerRecord) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.vehicle_number ? `(${c.vehicle_number})` : ""} - Debt: Rs. {c.total_balance?.toLocaleString() ?? 0}
-                  </option>
-                ))
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor={customerSelectId}
+                className="block text-xs font-medium text-zinc-400"
+              >
+                Customer Name (Type any name on the fly)
+              </label>
+              {selectedCustomerId && (
+                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                  Existing Customer
+                </span>
               )}
-            </select>
+            </div>
+            <input
+              id={customerSelectId}
+              type="text"
+              list="customer-suggestions"
+              value={customerName}
+              onChange={(e) => handleCustomerSelect(e.target.value)}
+              placeholder="e.g. Malik Transport or type new customer name..."
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+              required
+            />
+            <datalist id="customer-suggestions">
+              {customerList.map((c: CustomerRecord) => (
+                <option key={c.id} value={c.name}>
+                  {c.vehicle_number ? `(${c.vehicle_number}) ` : ""}Debt: Rs. {c.total_balance?.toLocaleString() ?? 0}
+                </option>
+              ))}
+            </datalist>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              Type any new name to create an on-the-fly Khata entry, or pick an existing customer.
+            </p>
           </div>
 
           {/* Product Dropdown */}

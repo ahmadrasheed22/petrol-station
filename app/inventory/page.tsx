@@ -1,4 +1,4 @@
-import { getAuthenticatedUser } from "@/lib/services/user-service";
+import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import InventoryArrivalForm from "@/components/InventoryArrivalForm";
@@ -7,11 +7,13 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 export default async function InventoryPage() {
-  const user = await getAuthenticatedUser();
+  const authData = await getAuthenticatedUserProfile();
 
-  if (!user) {
+  if (!authData) {
     redirect("/login");
   }
+
+  const { user, profile } = authData;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
@@ -78,10 +80,21 @@ export default async function InventoryPage() {
           <div className="flex items-center gap-4">
             <SyncIndicator />
             <div className="hidden sm:flex flex-col text-right">
-              <span className="text-xs text-zinc-400">Signed in as</span>
-              <span className="text-sm font-medium text-amber-400">
-                {user.email}
-              </span>
+              <div className="flex items-center gap-2 justify-end">
+                <span className="text-sm font-semibold text-white">
+                  {profile.name}
+                </span>
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                    profile.role === "owner"
+                      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                      : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                  }`}
+                >
+                  {profile.role}
+                </span>
+              </div>
+              <span className="text-xs text-zinc-400">{user.email}</span>
             </div>
             <form action={logout}>
               <button

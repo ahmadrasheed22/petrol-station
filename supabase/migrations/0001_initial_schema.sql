@@ -60,17 +60,27 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 
 -- Baseline RLS Policies
+DROP POLICY IF EXISTS "Allow authenticated read access to profiles" ON public.profiles;
 CREATE POLICY "Allow authenticated read access to profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow authenticated insert/update access to profiles" ON public.profiles;
 CREATE POLICY "Allow authenticated insert/update access to profiles" ON public.profiles FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow authenticated read access to products" ON public.products;
 CREATE POLICY "Allow authenticated read access to products" ON public.products FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow authenticated insert/update access to products" ON public.products;
 CREATE POLICY "Allow authenticated insert/update access to products" ON public.products FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow authenticated read access to shifts" ON public.shifts;
 CREATE POLICY "Allow authenticated read access to shifts" ON public.shifts FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow authenticated insert/update access to shifts" ON public.shifts;
 CREATE POLICY "Allow authenticated insert/update access to shifts" ON public.shifts FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow authenticated read access to transactions" ON public.transactions;
 CREATE POLICY "Allow authenticated read access to transactions" ON public.transactions FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow authenticated insert/update access to transactions" ON public.transactions;
 CREATE POLICY "Allow authenticated insert/update access to transactions" ON public.transactions FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow authenticated read access to expenses" ON public.expenses;
 CREATE POLICY "Allow authenticated read access to expenses" ON public.expenses FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow authenticated insert/update access to expenses" ON public.expenses;
 CREATE POLICY "Allow authenticated insert/update access to expenses" ON public.expenses FOR ALL TO authenticated USING (true) WITH CHECK (true);

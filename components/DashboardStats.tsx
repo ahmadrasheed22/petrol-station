@@ -11,7 +11,16 @@ export default function DashboardStats() {
     setMounted(true);
   }, []);
 
-  // Dexie live queries for pending sales, pending expenses, and active shift
+  // Dexie live queries for pending shifts (duties), pending expenses, and active shift
+  const pendingShifts = useLiveQuery(
+    async () => {
+      if (typeof window === "undefined") return [];
+      return await db.shifts.where("sync_status").equals("pending").toArray();
+    },
+    [],
+    []
+  );
+
   const pendingSales = useLiveQuery(
     async () => {
       if (typeof window === "undefined") return [];
@@ -39,10 +48,12 @@ export default function DashboardStats() {
     null
   );
 
-  const pendingSalesCount = pendingSales ? pendingSales.length : 0;
-  const pendingSalesLiters = pendingSales
-    ? pendingSales.reduce((acc, sale) => acc + (sale.total_liters || 0), 0)
-    : 0;
+  // Compute pending duty & sales liters
+  const endedPendingShifts = (pendingShifts || []).filter((s) => s.status === "ended");
+  const shiftLiters = endedPendingShifts.reduce((acc, s) => acc + (s.total_liters || 0), 0);
+  const salesLiters = (pendingSales || []).reduce((acc, sale) => acc + (sale.total_liters || 0), 0);
+  const totalUnsyncedLiters = shiftLiters + salesLiters;
+  const totalPendingDutiesCount = endedPendingShifts.length;
 
   const pendingExpensesCount = pendingExpenses ? pendingExpenses.length : 0;
   const pendingExpensesTotal = pendingExpenses
@@ -61,11 +72,11 @@ export default function DashboardStats() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {/* Stat Card 1: Offline Sales Pending */}
+      {/* Stat Card 1: Offline Fuel Duties Unsynced */}
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl flex flex-col justify-between space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Offline Sales Pending
+            Offline Duties Pending
           </span>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
             <svg
@@ -85,13 +96,13 @@ export default function DashboardStats() {
         </div>
         <div>
           <div className="text-3xl font-bold text-white">
-            {pendingSalesCount}{" "}
+            {totalPendingDutiesCount}{" "}
             <span className="text-xs font-normal text-zinc-400">
-              {pendingSalesCount === 1 ? "record" : "records"}
+              {totalPendingDutiesCount === 1 ? "duty" : "duties"}
             </span>
           </div>
-          <p className="text-xs text-emerald-400 mt-1">
-            {pendingSalesLiters.toLocaleString(undefined, {
+          <p className="text-xs text-emerald-400 mt-1 font-mono">
+            {totalUnsyncedLiters.toLocaleString(undefined, {
               minimumFractionDigits: 1,
               maximumFractionDigits: 2,
             })}{" "}
@@ -137,16 +148,16 @@ export default function DashboardStats() {
         </div>
       </div>
 
-      {/* Stat Card 3: Active Shift Status */}
+      {/* Stat Card 3: Active Shift Duty Status */}
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl flex flex-col justify-between space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Active Shift Status
+            Active Duty Status
           </span>
           <div
             className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
               activeShift
-                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
                 : "bg-zinc-800 border-zinc-700 text-zinc-400"
             }`}
           >
@@ -169,17 +180,17 @@ export default function DashboardStats() {
           <div className="text-2xl font-bold text-white flex items-center gap-2">
             {activeShift ? (
               <>
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                Active Shift
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>{activeShift.product_name || "Active Duty"}</span>
               </>
             ) : (
-              <span className="text-amber-400">No Shift Active</span>
+              <span className="text-zinc-400">No Active Duty</span>
             )}
           </div>
           <p className="text-xs text-zinc-400 mt-1 truncate">
             {activeShift
-              ? `Started: ${new Date(activeShift.start_time).toLocaleTimeString()}`
-              : "Start a shift to link sales & expenses"}
+              ? `Open Meter: ${activeShift.opening_meter?.toLocaleString() ?? 0} | Started ${new Date(activeShift.start_time).toLocaleTimeString()}`
+              : "Start a duty to begin recording meter readings"}
           </p>
         </div>
       </div>
