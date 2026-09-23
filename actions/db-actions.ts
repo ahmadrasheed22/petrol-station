@@ -26,13 +26,18 @@ export interface ShiftPayload {
   shift_id: string;
   user_id?: string;
   worker_name?: string;
+  product_id?: string;
+  product_name?: string;
+  price_per_liter?: number;
   start_time: string;
   end_time?: string;
   opening_meter?: number;
   closing_meter?: number;
   testing_liters?: number;
+  total_liters?: number;
   expected_cash?: number;
   actual_cash?: number;
+  shortage_amount?: number;
   created_at?: string;
 }
 
@@ -140,13 +145,18 @@ export async function syncShiftsToCloud(
       id: s.shift_id,
       worker_id:
         s.user_id && verifiedProfileSet.has(s.user_id) ? s.user_id : null,
+      product_id: s.product_id || null,
+      product_name: s.product_name || null,
+      price_per_liter: s.price_per_liter ?? 0,
       start_time: s.start_time || new Date().toISOString(),
       end_time: s.end_time || null,
       opening_meter: s.opening_meter ?? 0,
       closing_meter: s.closing_meter ?? 0,
       testing_liters: s.testing_liters ?? 0,
+      total_liters: s.total_liters ?? 0,
       expected_cash: s.expected_cash ?? 0,
       actual_cash: s.actual_cash ?? 0,
+      shortage_amount: s.shortage_amount ?? 0,
       created_at: s.created_at || new Date().toISOString(),
     }));
 

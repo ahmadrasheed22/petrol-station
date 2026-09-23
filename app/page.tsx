@@ -1,7 +1,7 @@
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
-import ShiftManager from "@/components/ShiftManager";
+import ShiftDutyManager from "@/components/ShiftDutyManager";
 import ExpenseForm from "@/components/ExpenseForm";
 import DashboardStats from "@/components/DashboardStats";
 import { redirect } from "next/navigation";
@@ -143,9 +143,8 @@ export default async function DashboardPage() {
         <DashboardStats />
 
         {/* Pump Operations & Expense Logging Grid */}
-        {/* Note: The old individual "Log Fuel Sale" transaction form has been removed, as we are replacing it with the Shift Opening/Closing Meter Reading form in the next step. */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ShiftManager
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <ShiftDutyManager
             userId={user.id}
             workerName={profile.name}
             userRole={profile.role}

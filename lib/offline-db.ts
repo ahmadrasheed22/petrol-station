@@ -22,14 +22,19 @@ export interface ShiftRecord {
   shift_id: string;
   user_id: string;
   worker_name?: string;
-  start_time: string;
-  end_time?: string;
-  status: "active" | "ended";
+  product_id?: string;
+  product_name?: string;
+  price_per_liter?: number;
   opening_meter?: number;
   closing_meter?: number;
   testing_liters?: number;
+  total_liters?: number;
   expected_cash?: number;
   actual_cash?: number;
+  shortage_amount?: number; // negative = shortage, positive = excess, 0 = balanced
+  start_time: string;
+  end_time?: string;
+  status: "active" | "ended";
   sync_status: SyncStatus;
   created_at: string;
 }
@@ -138,6 +143,17 @@ export class PetrolPumpDB extends Dexie {
       pendingLedger: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
       pendingLedgerTransactions: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
       shifts: "++id, shift_id, user_id, status, sync_status, created_at",
+      customers: "id, name, vehicle_number, total_balance",
+      pendingInventory: "++id, sync_status, product_id, created_at",
+    });
+
+    // Version 7: Shift Duty Meter-Reading with product and shortage indexing
+    this.version(7).stores({
+      pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+      pendingExpenses: "++id, sync_status, shift_id, category, amount, description, created_at",
+      pendingLedger: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
+      pendingLedgerTransactions: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
+      shifts: "++id, shift_id, user_id, product_id, status, sync_status, created_at",
       customers: "id, name, vehicle_number, total_balance",
       pendingInventory: "++id, sync_status, product_id, created_at",
     });

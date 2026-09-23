@@ -24,6 +24,9 @@ export async function startShift(
   userId: string,
   options?: {
     worker_name?: string;
+    product_id?: string;
+    product_name?: string;
+    price_per_liter?: number;
     opening_meter?: number;
   }
 ): Promise<ShiftRecord> {
@@ -48,11 +51,16 @@ export async function startShift(
     shift_id: shiftId,
     user_id: userId,
     worker_name: options?.worker_name,
+    product_id: options?.product_id,
+    product_name: options?.product_name,
+    price_per_liter: options?.price_per_liter ?? 0,
     opening_meter: options?.opening_meter ?? 0,
     closing_meter: 0,
     testing_liters: 0,
+    total_liters: 0,
     expected_cash: 0,
     actual_cash: 0,
+    shortage_amount: 0,
     start_time: now,
     status: "active",
     sync_status: "pending",
@@ -68,8 +76,10 @@ export async function endShift(
   options?: {
     closing_meter?: number;
     testing_liters?: number;
+    total_liters?: number;
     expected_cash?: number;
     actual_cash?: number;
+    shortage_amount?: number;
   }
 ): Promise<void> {
   const now = new Date().toISOString();
@@ -82,14 +92,33 @@ export async function endShift(
     ...(options?.testing_liters !== undefined && {
       testing_liters: options.testing_liters,
     }),
+    ...(options?.total_liters !== undefined && {
+      total_liters: options.total_liters,
+    }),
     ...(options?.expected_cash !== undefined && {
       expected_cash: options.expected_cash,
     }),
     ...(options?.actual_cash !== undefined && {
       actual_cash: options.actual_cash,
     }),
+    ...(options?.shortage_amount !== undefined && {
+      shortage_amount: options.shortage_amount,
+    }),
     sync_status: "pending",
   });
+}
+
+export async function fetchRecentShifts(limit = 10): Promise<ShiftRecord[]> {
+  try {
+    return await db.shifts
+      .orderBy("created_at")
+      .reverse()
+      .limit(limit)
+      .toArray();
+  } catch (err) {
+    console.error("Failed to query recent shifts from Dexie:", err);
+    return [];
+  }
 }
 
 export async function addPendingSale(saleData: {
