@@ -61,6 +61,24 @@ export async function getPendingCount(): Promise<number> {
   }
 }
 
+let isSyncing = false;
+let pendingSyncRequest = false;
+
+/**
+ * Triggers background offline sync to cloud if the client browser has an active internet connection.
+ * Non-blocking fire-and-forget designed to run immediately after Dexie writes.
+ */
+export function triggerAutoSyncIfOnline(): void {
+  if (
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    navigator.onLine
+  ) {
+    processOfflineQueue().catch((err) => {
+      console.warn("Background auto-sync encountered an error:", err);
+    });
+  }
+}
 
 /**
  * Processes un-synced offline records in Dexie and syncs them to Supabase.
@@ -68,10 +86,26 @@ export async function getPendingCount(): Promise<number> {
  * 1. Shifts (upserted to Supabase 'shifts' table to ensure FK requirements are satisfied)
  * 2. Sales / Transactions
  * 3. Expenses
+ * 4. Ledger Transactions
+ * 5. Inventory Arrivals
  * Strict Error Fallback: Records are strictly retained as 'pending' unless
  * the server action returns success: true.
  */
 export async function processOfflineQueue(): Promise<ProcessQueueResult> {
+  if (isSyncing) {
+    pendingSyncRequest = true;
+    return {
+      success: true,
+      syncedShiftsCount: 0,
+      syncedSalesCount: 0,
+      syncedExpensesCount: 0,
+      syncedLedgerCount: 0,
+      syncedInventoryCount: 0,
+      pendingRemainingCount: await getPendingCount(),
+    };
+  }
+
+  isSyncing = true;
   let syncedShiftsCount = 0;
   let syncedSalesCount = 0;
   let syncedExpensesCount = 0;
@@ -340,6 +374,14 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
       pendingRemainingCount,
       error: errorMsg,
     };
+  } finally {
+    isSyncing = false;
+    if (pendingSyncRequest) {
+      pendingSyncRequest = false;
+      setTimeout(() => {
+        triggerAutoSyncIfOnline();
+      }, 300);
+    }
   }
 }
 

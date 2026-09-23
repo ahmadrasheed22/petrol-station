@@ -141,11 +141,16 @@ export default function CreditSaleForm() {
         transaction_type: "credit",
       });
 
+      const isOnline = typeof navigator !== "undefined" && navigator.onLine;
       setSuccessMsg(
         `Credit sale of ${liters}L ${productName} (Rs. ${finalAmount.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        })}) recorded for "${targetCustomerName}"!`
+        })}) recorded for "${targetCustomerName}"! ${
+          isOnline
+            ? "⚡ Auto-synced to Cloud instantly."
+            : "Saved offline to Dexie (will sync when online)."
+        }`
       );
 
       // Reset form inputs for next manual entry

@@ -6,6 +6,7 @@ import {
   PendingLedgerTransaction,
   PendingInventory,
 } from "@/lib/offline-db";
+import { triggerAutoSyncIfOnline } from "@/lib/services/sync-service";
 
 /**
  * Service functions for offline IndexedDB operations (Dexie.js).
@@ -68,6 +69,7 @@ export async function startShift(
   };
 
   const id = await db.shifts.add(shiftData as ShiftRecord);
+  triggerAutoSyncIfOnline();
   return { id: id as number, ...shiftData };
 }
 
@@ -106,6 +108,7 @@ export async function endShift(
     }),
     sync_status: "pending",
   });
+  triggerAutoSyncIfOnline();
 }
 
 export async function fetchRecentShifts(limit = 10): Promise<ShiftRecord[]> {
@@ -147,6 +150,7 @@ export async function addPendingSale(saleData: {
     sync_status: "pending",
     created_at: now,
   });
+  triggerAutoSyncIfOnline();
   return id as number;
 }
 
@@ -183,6 +187,7 @@ export async function addPendingExpense(expenseData: {
     sync_status: "pending",
     created_at: now,
   });
+  triggerAutoSyncIfOnline();
   return id as number;
 }
 
@@ -325,6 +330,7 @@ export async function addPendingLedgerTx(txData: {
     }
   }
 
+  triggerAutoSyncIfOnline();
   return id as number;
 }
 
@@ -448,6 +454,7 @@ export async function addPendingInventory(arrivalData: {
     sync_status: "pending",
     created_at: now,
   });
+  triggerAutoSyncIfOnline();
   return id as number;
 }
 
