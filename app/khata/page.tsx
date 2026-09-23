@@ -3,6 +3,7 @@ import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import CreditSaleForm from "@/components/CreditSaleForm";
 import CustomerBalances from "@/components/CustomerBalances";
+import RecentEntries from "@/components/RecentEntries";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -141,6 +142,9 @@ export default async function KhataPage() {
           <CreditSaleForm />
           <CustomerBalances />
         </div>
+
+        {/* Recent Entries: Today's Logged Expenses & Credit Sales with Edit/Delete */}
+        <RecentEntries />
       </main>
     </div>
   );

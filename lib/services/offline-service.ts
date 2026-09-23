@@ -186,6 +186,25 @@ export async function addPendingExpense(expenseData: {
   return id as number;
 }
 
+export async function updatePendingExpense(
+  id: number,
+  data: {
+    amount: number;
+    category: string;
+    description?: string;
+  }
+): Promise<void> {
+  await db.pendingExpenses.update(id, {
+    amount: data.amount,
+    category: data.category,
+    description: data.description,
+  });
+}
+
+export async function deletePendingExpense(id: number): Promise<void> {
+  await db.pendingExpenses.delete(id);
+}
+
 export const DEFAULT_CUSTOMERS: CustomerRecord[] = [
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -307,6 +326,108 @@ export async function addPendingLedgerTx(txData: {
   }
 
   return id as number;
+}
+
+export async function deletePendingLedgerTx(id: number): Promise<void> {
+  const tx = await db.pendingLedgerTransactions.get(id);
+  if (tx) {
+    if (tx.customer_id) {
+      try {
+        const customer = await db.customers.get(tx.customer_id);
+        if (customer) {
+          const delta = tx.transaction_type === "credit" ? -tx.amount : tx.amount;
+          const updatedBalance = (customer.total_balance || 0) + delta;
+          await db.customers.update(tx.customer_id, {
+            total_balance: updatedBalance,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (custErr) {
+        console.warn("Could not revert local customer balance in Dexie:", custErr);
+      }
+    }
+    await db.pendingLedgerTransactions.delete(id);
+  }
+}
+
+export async function updatePendingLedgerTx(
+  id: number,
+  data: {
+    customer_name: string;
+    liters: number;
+    price_per_liter: number;
+    amount: number;
+  }
+): Promise<void> {
+  const oldTx = await db.pendingLedgerTransactions.get(id);
+  if (!oldTx) return;
+
+  const now = new Date().toISOString();
+  const trimmedName = data.customer_name.trim();
+  let targetCustomerId = oldTx.customer_id;
+
+  // Handle balance adjustment in local Dexie customers store
+  if (targetCustomerId) {
+    try {
+      const oldCustomer = await db.customers.get(targetCustomerId);
+      if (oldCustomer) {
+        if (oldCustomer.name.toLowerCase() === trimmedName.toLowerCase()) {
+          const amountDiff = data.amount - oldTx.amount;
+          const delta = oldTx.transaction_type === "credit" ? amountDiff : -amountDiff;
+          await db.customers.update(targetCustomerId, {
+            total_balance: (oldCustomer.total_balance || 0) + delta,
+            updated_at: now,
+          });
+        } else {
+          // Revert old customer balance
+          const revertDelta = oldTx.transaction_type === "credit" ? -oldTx.amount : oldTx.amount;
+          await db.customers.update(targetCustomerId, {
+            total_balance: (oldCustomer.total_balance || 0) + revertDelta,
+            updated_at: now,
+          });
+
+          // Check or create new customer
+          const existingNew = await db.customers
+            .filter((c) => c.name.toLowerCase() === trimmedName.toLowerCase())
+            .first();
+
+          if (existingNew) {
+            targetCustomerId = existingNew.id;
+            const newDelta = oldTx.transaction_type === "credit" ? data.amount : -data.amount;
+            await db.customers.update(targetCustomerId, {
+              total_balance: (existingNew.total_balance || 0) + newDelta,
+              updated_at: now,
+            });
+          } else {
+            const newCustId =
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `cust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+            await db.customers.add({
+              id: newCustId,
+              name: trimmedName,
+              total_balance: oldTx.transaction_type === "credit" ? data.amount : -data.amount,
+              created_at: now,
+              updated_at: now,
+            });
+            targetCustomerId = newCustId;
+          }
+        }
+      }
+    } catch (custErr) {
+      console.warn("Could not recalibrate customer balance on edit:", custErr);
+    }
+  }
+
+  await db.pendingLedgerTransactions.update(id, {
+    customer_id: targetCustomerId,
+    customer_name: trimmedName,
+    liters: data.liters,
+    price_per_liter: data.price_per_liter,
+    applied_sp: data.price_per_liter,
+    amount: data.amount,
+  });
 }
 
 /**

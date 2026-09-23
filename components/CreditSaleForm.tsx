@@ -2,11 +2,8 @@
 
 import { useState, useEffect, useId } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, CustomerRecord } from "@/lib/offline-db";
-import {
-  getOfflineCustomers,
-  addPendingLedgerTx,
-} from "@/lib/services/offline-service";
+import { db } from "@/lib/offline-db";
+import { addPendingLedgerTx } from "@/lib/services/offline-service";
 import { createClient } from "@/lib/supabase/client";
 
 interface Product {
@@ -26,7 +23,6 @@ export default function CreditSaleForm() {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerName, setCustomerName] = useState<string>("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [litersStr, setLitersStr] = useState<string>("");
   const [pricePerLiterStr, setPricePerLiterStr] = useState<string>("");
@@ -37,21 +33,10 @@ export default function CreditSaleForm() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const customerSelectId = useId();
   const productSelectId = useId();
   const litersInputId = useId();
   const priceInputId = useId();
   const amountInputId = useId();
-
-  // Reactive live query for customers in Dexie
-  const liveCustomers = useLiveQuery(
-    async () => {
-      if (typeof window === "undefined") return [];
-      return await db.customers.toArray();
-    },
-    [],
-    []
-  );
 
   // Live query for active shift
   const activeShift = useLiveQuery(
@@ -63,23 +48,11 @@ export default function CreditSaleForm() {
     null
   );
 
-  // Initialize offline customers & products on mount
+  // Initialize products on mount
   useEffect(() => {
     setMounted(true);
 
     async function initData() {
-      // 1. Ensure offline customers are cached
-      try {
-        const cached = await getOfflineCustomers();
-        if (cached && cached.length > 0 && !customerName) {
-          setSelectedCustomerId(cached[0].id);
-          setCustomerName(cached[0].name);
-        }
-      } catch (err) {
-        console.error("Failed to load initial offline customers:", err);
-      }
-
-      // 2. Fetch products from Supabase or fallback
       setIsLoadingProducts(true);
       try {
         const supabase = createClient();
@@ -127,19 +100,6 @@ export default function CreditSaleForm() {
     }
   };
 
-  const handleCustomerSelect = (nameOrId: string) => {
-    const matched = (liveCustomers || []).find(
-      (c) => c.id === nameOrId || c.name.toLowerCase() === nameOrId.toLowerCase()
-    );
-    if (matched) {
-      setSelectedCustomerId(matched.id);
-      setCustomerName(matched.name);
-    } else {
-      setSelectedCustomerId("");
-      setCustomerName(nameOrId);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMsg(null);
@@ -147,12 +107,17 @@ export default function CreditSaleForm() {
 
     const targetCustomerName = customerName.trim();
     if (!targetCustomerName) {
-      setErrorMsg("Please enter or select a customer name.");
+      setErrorMsg("Please enter a customer name.");
       return;
     }
 
     if (liters <= 0) {
       setErrorMsg("Please enter liters sold on credit (> 0).");
+      return;
+    }
+
+    if (pricePerLiter <= 0) {
+      setErrorMsg("Please enter a valid price per liter (> Rs. 0).");
       return;
     }
 
@@ -167,7 +132,6 @@ export default function CreditSaleForm() {
       const productName = product ? product.name : "Fuel";
 
       await addPendingLedgerTx({
-        customer_id: selectedCustomerId || undefined,
         customer_name: targetCustomerName,
         worker_id: activeShift?.user_id,
         liters,
@@ -181,10 +145,11 @@ export default function CreditSaleForm() {
         `Credit sale of ${liters}L ${productName} (Rs. ${finalAmount.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        })}) recorded for ${targetCustomerName}!`
+        })}) recorded for "${targetCustomerName}"!`
       );
 
-      // Reset input fields
+      // Reset form inputs for next manual entry
+      setCustomerName("");
       setLitersStr("");
       setManualAmountStr("");
       setIsCustomAmount(false);
@@ -206,8 +171,6 @@ export default function CreditSaleForm() {
       </div>
     );
   }
-
-  const customerList = liveCustomers && liveCustomers.length > 0 ? liveCustomers : [];
 
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl flex flex-col justify-between space-y-6">
@@ -239,7 +202,7 @@ export default function CreditSaleForm() {
           </div>
 
           <span className="text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-full">
-            Offline Khata
+            Manual Udhar
           </span>
         </div>
 
@@ -270,40 +233,26 @@ export default function CreditSaleForm() {
 
         {/* Form Inputs */}
         <form id="credit-sale-form" onSubmit={handleSubmit} className="space-y-4">
-          {/* Customer Input (Type any name on the fly or select existing) */}
+          {/* Customer Name Text Input (Fully Manual) */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label
-                htmlFor={customerSelectId}
-                className="block text-xs font-medium text-zinc-400"
-              >
-                Customer Name (Type any name on the fly)
-              </label>
-              {selectedCustomerId && (
-                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                  Existing Customer
-                </span>
-              )}
-            </div>
+            <label
+              htmlFor="customer_name"
+              className="block text-xs font-medium text-zinc-400 mb-1.5"
+            >
+              Customer Name (Manual Entry)
+            </label>
             <input
-              id={customerSelectId}
+              id="customer_name"
+              name="customer_name"
               type="text"
-              list="customer-suggestions"
               value={customerName}
-              onChange={(e) => handleCustomerSelect(e.target.value)}
-              placeholder="e.g. Malik Transport or type new customer name..."
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="e.g. Malik Transport, Aslam Rickshaw, Ch Tariq..."
               className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
               required
             />
-            <datalist id="customer-suggestions">
-              {customerList.map((c: CustomerRecord) => (
-                <option key={c.id} value={c.name}>
-                  {c.vehicle_number ? `(${c.vehicle_number}) ` : ""}Debt: Rs. {c.total_balance?.toLocaleString() ?? 0}
-                </option>
-              ))}
-            </datalist>
             <p className="text-[11px] text-zinc-500 mt-1">
-              Type any new name to create an on-the-fly Khata entry, or pick an existing customer.
+              Type any customer or driver name manually without dropdown restrictions.
             </p>
           </div>
 
@@ -328,14 +277,14 @@ export default function CreditSaleForm() {
               ) : (
                 products.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} {p.current_sp ? `(Rs. ${p.current_sp}/L)` : ""}
+                    {p.name} {p.current_sp ? `(Standard: Rs. ${p.current_sp}/L)` : ""}
                   </option>
                 ))
               )}
             </select>
           </div>
 
-          {/* Liters and Price Row */}
+          {/* Liters and Price Row (Manual Inputs just like ShiftDutyManager) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
@@ -442,7 +391,7 @@ export default function CreditSaleForm() {
         <button
           type="submit"
           form="credit-sale-form"
-          disabled={isSubmitting || customerList.length === 0}
+          disabled={isSubmitting || !customerName.trim() || liters <= 0 || pricePerLiter <= 0}
           className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:opacity-50 cursor-pointer"
         >
           {isSubmitting ? "Saving to Dexie..." : "Log Credit Sale (Offline)"}
