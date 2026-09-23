@@ -1,6 +1,7 @@
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { isServiceRoleConfigured } from "@/actions/admin-actions";
 import AdminNav from "@/components/admin/AdminNav";
+import AdminRealtimeSync from "@/components/admin/AdminRealtimeSync";
 import { redirect } from "next/navigation";
 
 export const metadata = {
@@ -33,6 +34,9 @@ export default async function AdminLayout({
         ownerName={authData.profile.name || "Station Owner"}
         isServiceRoleReady={isServiceRoleReady}
       />
+
+      {/* Real-Time Supabase Sync & Alerts */}
+      <AdminRealtimeSync />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">

@@ -66,11 +66,16 @@ export default function ExpenseForm() {
         description: description.trim() || undefined,
       });
 
+      const isOnline = typeof navigator !== "undefined" && navigator.onLine;
       setSuccessMsg(
         `Expense of Rs. ${amount.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        })} (${category}) logged successfully to Dexie!`
+        })} (${category}) recorded! ${
+          isOnline
+            ? "⚡ Auto-synced to Cloud instantly."
+            : "Saved offline to Dexie (will sync when online)."
+        }`
       );
       setAmountStr("");
       setDescription("");

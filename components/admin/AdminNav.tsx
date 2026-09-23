@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { logout } from "@/actions/auth-actions";
+import { useRealtimeSync } from "@/lib/hooks/useRealtimeSync";
 
 interface AdminNavProps {
   ownerName: string;
@@ -13,6 +14,7 @@ interface AdminNavProps {
 export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { isConnected } = useRealtimeSync({ autoRefresh: false });
 
   const navLinks = [
     {
@@ -138,8 +140,34 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
             })}
           </nav>
 
-          {/* Right Controls: Service Key Status, Worker Mode Switcher, User & Sign Out */}
+          {/* Right Controls: Realtime Status, Service Key Status, Worker Mode Switcher, User & Sign Out */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Realtime Sync Status Indicator */}
+            <div
+              title={
+                isConnected
+                  ? "Supabase Realtime WebSocket Active: Streaming worker duties, expenses & khata"
+                  : "Connecting to Supabase Realtime channel..."
+              }
+              className={`hidden md:flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                isConnected
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+              }`}
+            >
+              <span className="relative flex h-2 w-2">
+                {isConnected && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                    isConnected ? "bg-emerald-400" : "bg-amber-400"
+                  }`}
+                />
+              </span>
+              <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
+            </div>
+
             {/* Service Role status indicator */}
             {!isServiceRoleReady ? (
               <div
