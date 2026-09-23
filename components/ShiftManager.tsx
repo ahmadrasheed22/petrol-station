@@ -7,9 +7,11 @@ import { startShift, endShift } from "@/lib/services/offline-service";
 
 interface ShiftManagerProps {
   userId: string;
+  workerName?: string;
+  userRole?: string;
 }
 
-export default function ShiftManager({ userId }: ShiftManagerProps) {
+export default function ShiftManager({ userId, workerName }: ShiftManagerProps) {
   const [mounted, setMounted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -33,7 +35,7 @@ export default function ShiftManager({ userId }: ShiftManagerProps) {
     setIsProcessing(true);
     setActionMessage(null);
     try {
-      const newShift = await startShift(userId);
+      const newShift = await startShift(userId, { worker_name: workerName });
       setActionMessage(`Shift started successfully! ID: ${newShift.shift_id}`);
     } catch (err: unknown) {
       console.error("Failed to start shift:", err);
@@ -116,8 +118,14 @@ export default function ShiftManager({ userId }: ShiftManagerProps) {
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
-              <span className="text-zinc-400">Worker ID:</span>
-              <span className="font-mono text-zinc-200">{activeShift.user_id}</span>
+              <span className="text-zinc-400">Worker:</span>
+              <span className="font-semibold text-emerald-300">
+                {activeShift.worker_name || workerName || "Active Worker"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-zinc-500">Worker ID:</span>
+              <span className="font-mono text-zinc-400">{activeShift.user_id}</span>
             </div>
             <div className="flex justify-between items-center text-xs">
               <span className="text-zinc-400">Started At:</span>

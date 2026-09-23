@@ -7,6 +7,7 @@ export interface TransactionPayload {
   product_id?: string;
   type?: string;
   liters?: number;
+  price_per_liter?: number;
   applied_sp?: number;
   applied_cp?: number;
   total_amount?: number;
@@ -24,16 +25,24 @@ export interface ExpensePayload {
 export interface ShiftPayload {
   shift_id: string;
   user_id?: string;
+  worker_name?: string;
   start_time: string;
   end_time?: string;
+  opening_meter?: number;
+  closing_meter?: number;
+  testing_liters?: number;
+  expected_cash?: number;
+  actual_cash?: number;
   created_at?: string;
 }
 
 export interface LedgerPayload {
-  customer_id: string;
+  customer_id?: string;
+  customer_name?: string;
   worker_id?: string;
   liters?: number;
   amount: number;
+  price_per_liter?: number;
   applied_sp?: number;
   transaction_type?: "credit" | "payment";
   created_at?: string;
@@ -133,6 +142,11 @@ export async function syncShiftsToCloud(
         s.user_id && verifiedProfileSet.has(s.user_id) ? s.user_id : null,
       start_time: s.start_time || new Date().toISOString(),
       end_time: s.end_time || null,
+      opening_meter: s.opening_meter ?? 0,
+      closing_meter: s.closing_meter ?? 0,
+      testing_liters: s.testing_liters ?? 0,
+      expected_cash: s.expected_cash ?? 0,
+      actual_cash: s.actual_cash ?? 0,
       created_at: s.created_at || new Date().toISOString(),
     }));
 
@@ -210,18 +224,23 @@ export async function syncTransactionsToCloud(
       validProductIds = new Set((existingProducts || []).map((p) => p.id));
     }
 
-    const formattedTransactions = transactions.map((t) => ({
-      shift_id:
-        t.shift_id && validShiftIds.has(t.shift_id) ? t.shift_id : null,
-      product_id:
-        t.product_id && validProductIds.has(t.product_id) ? t.product_id : null,
-      type: t.type || "sale",
-      liters: t.liters ?? 0,
-      applied_sp: t.applied_sp ?? 0,
-      applied_cp: t.applied_cp ?? 0,
-      total_amount: t.total_amount ?? (t.liters ?? 0) * (t.applied_sp ?? 0),
-      created_at: t.created_at || new Date().toISOString(),
-    }));
+    const formattedTransactions = transactions.map((t) => {
+      const price = t.price_per_liter ?? t.applied_sp ?? 0;
+      const liters = t.liters ?? 0;
+      return {
+        shift_id:
+          t.shift_id && validShiftIds.has(t.shift_id) ? t.shift_id : null,
+        product_id:
+          t.product_id && validProductIds.has(t.product_id) ? t.product_id : null,
+        type: t.type || "sale",
+        liters,
+        price_per_liter: price,
+        applied_sp: price,
+        applied_cp: t.applied_cp ?? 0,
+        total_amount: t.total_amount ?? liters * price,
+        created_at: t.created_at || new Date().toISOString(),
+      };
+    });
 
     const { data, error } = await supabase
       .from("transactions")
@@ -356,47 +375,81 @@ export async function syncLedgerToCloud(
   try {
     const supabase = await createClient();
 
-    // 1. Verify or auto-provision referenced customers
-    const customerIds = Array.from(
+    // 1. Resolve or auto-provision customers (supports both pre-existing customer IDs and on-the-fly customer names)
+    const entryCustomerMap = new Map<LedgerPayload, string | null>();
+
+    // Collect all valid UUIDs provided
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const providedUuids = Array.from(
       new Set(
         ledgerEntries
           .map((e) => e.customer_id)
-          .filter((id): id is string => Boolean(id))
+          .filter((id): id is string => Boolean(id && uuidRegex.test(id)))
       )
     );
 
-    if (customerIds.length > 0) {
-      const { data: existingCustomers } = await supabase
+    let existingCustSet = new Set<string>();
+    if (providedUuids.length > 0) {
+      const { data: existingCusts } = await supabase
         .from("customers")
         .select("id")
-        .in("id", customerIds);
+        .in("id", providedUuids);
+      existingCustSet = new Set((existingCusts || []).map((c) => c.id));
+    }
 
-      const existingCustSet = new Set((existingCustomers || []).map((c) => c.id));
-      const missingCustIds = customerIds.filter((id) => !existingCustSet.has(id));
+    // Collect names that need resolution
+    const namesToResolve = Array.from(
+      new Set(
+        ledgerEntries
+          .filter((e) => !e.customer_id || !existingCustSet.has(e.customer_id))
+          .map((e) => e.customer_name?.trim())
+          .filter((name): name is string => Boolean(name))
+      )
+    );
 
-      if (missingCustIds.length > 0) {
-        const defaultMap = new Map(KNOWN_DEFAULT_CUSTOMERS.map((c) => [c.id, c]));
-        const customersToCreate = missingCustIds.map((id) => {
-          const matched = defaultMap.get(id);
-          return {
-            id,
-            name: matched ? matched.name : `Customer ${id.slice(0, 8)}`,
-            vehicle_number: matched?.vehicle_number || null,
-            total_balance: matched?.total_balance ?? 0,
-            updated_at: new Date().toISOString(),
-          };
-        });
+    const nameToIdMap = new Map<string, string>();
+    if (namesToResolve.length > 0) {
+      const { data: matchedByName } = await supabase
+        .from("customers")
+        .select("id, name")
+        .in("name", namesToResolve);
 
-        const { error: custUpsertError } = await supabase
+      (matchedByName || []).forEach((c) => {
+        nameToIdMap.set(c.name.toLowerCase(), c.id);
+      });
+
+      const missingNames = namesToResolve.filter(
+        (n) => !nameToIdMap.has(n.toLowerCase())
+      );
+
+      if (missingNames.length > 0) {
+        const newCustomers = missingNames.map((name) => ({
+          name,
+          total_balance: 0,
+          updated_at: new Date().toISOString(),
+        }));
+
+        const { data: createdCusts, error: createCustErr } = await supabase
           .from("customers")
-          .upsert(customersToCreate, { onConflict: "id" });
+          .insert(newCustomers)
+          .select("id, name");
 
-        if (custUpsertError) {
-          console.warn(
-            "Warning: Could not auto-provision customers:",
-            custUpsertError.message
-          );
+        if (!createCustErr && createdCusts) {
+          createdCusts.forEach((c) => {
+            nameToIdMap.set(c.name.toLowerCase(), c.id);
+          });
         }
+      }
+    }
+
+    // Map each entry to resolved customer_id
+    for (const e of ledgerEntries) {
+      if (e.customer_id && existingCustSet.has(e.customer_id)) {
+        entryCustomerMap.set(e, e.customer_id);
+      } else if (e.customer_name && nameToIdMap.has(e.customer_name.trim().toLowerCase())) {
+        entryCustomerMap.set(e, nameToIdMap.get(e.customer_name.trim().toLowerCase())!);
+      } else {
+        entryCustomerMap.set(e, null);
       }
     }
 
@@ -418,17 +471,23 @@ export async function syncLedgerToCloud(
       validWorkerIds = new Set((existingProfiles || []).map((p) => p.id));
     }
 
-    // 3. Format ledger records
-    const formattedEntries = ledgerEntries.map((e) => ({
-      customer_id: e.customer_id,
-      worker_id:
-        e.worker_id && validWorkerIds.has(e.worker_id) ? e.worker_id : null,
-      liters: e.liters ?? 0,
-      amount: e.amount ?? 0,
-      applied_sp: e.applied_sp ?? 0,
-      transaction_type: e.transaction_type || "credit",
-      created_at: e.created_at || new Date().toISOString(),
-    }));
+    // 3. Format ledger records with customer_name and price_per_liter
+    const formattedEntries = ledgerEntries.map((e) => {
+      const price = e.price_per_liter ?? e.applied_sp ?? 0;
+      const resolvedCustId = entryCustomerMap.get(e);
+      return {
+        customer_id: resolvedCustId,
+        customer_name: e.customer_name || null,
+        worker_id:
+          e.worker_id && validWorkerIds.has(e.worker_id) ? e.worker_id : null,
+        liters: e.liters ?? 0,
+        amount: e.amount ?? 0,
+        price_per_liter: price,
+        applied_sp: price,
+        transaction_type: e.transaction_type || "credit",
+        created_at: e.created_at || new Date().toISOString(),
+      };
+    });
 
     const { data, error } = await supabase
       .from("ledger_transactions")
@@ -443,22 +502,21 @@ export async function syncLedgerToCloud(
         error.code === "42P01";
 
       const fullErrorMsg = isMissingTable
-        ? "Supabase table 'public.ledger_transactions' is missing. Please run migration '0002_profiles_trigger_and_seed.sql' in your Supabase Dashboard SQL Editor."
+        ? "Supabase table 'public.ledger_transactions' is missing. Please run migrations in your Supabase Dashboard SQL Editor."
         : [error.message, error.details, error.hint].filter(Boolean).join(" | ");
 
       console.error("Supabase insert ledger_transactions error:", fullErrorMsg);
       return { success: false, error: fullErrorMsg };
     }
 
-
     // 4. Update customer total balances in Supabase
     const customerDeltas = new Map<string, number>();
     for (const e of ledgerEntries) {
-      const delta = (e.transaction_type || "credit") === "credit" ? e.amount : -e.amount;
-      customerDeltas.set(
-        e.customer_id,
-        (customerDeltas.get(e.customer_id) || 0) + delta
-      );
+      const custId = entryCustomerMap.get(e);
+      if (custId) {
+        const delta = (e.transaction_type || "credit") === "credit" ? e.amount : -e.amount;
+        customerDeltas.set(custId, (customerDeltas.get(custId) || 0) + delta);
+      }
     }
 
     for (const [custId, delta] of customerDeltas.entries()) {

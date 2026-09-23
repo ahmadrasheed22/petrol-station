@@ -20,7 +20,13 @@ export async function getActiveShift(): Promise<ShiftRecord | undefined> {
   return await db.shifts.where("status").equals("active").first();
 }
 
-export async function startShift(userId: string): Promise<ShiftRecord> {
+export async function startShift(
+  userId: string,
+  options?: {
+    worker_name?: string;
+    opening_meter?: number;
+  }
+): Promise<ShiftRecord> {
   const now = new Date().toISOString();
   const shiftId =
     typeof crypto !== "undefined" && crypto.randomUUID
@@ -41,6 +47,12 @@ export async function startShift(userId: string): Promise<ShiftRecord> {
   const shiftData: Omit<ShiftRecord, "id"> = {
     shift_id: shiftId,
     user_id: userId,
+    worker_name: options?.worker_name,
+    opening_meter: options?.opening_meter ?? 0,
+    closing_meter: 0,
+    testing_liters: 0,
+    expected_cash: 0,
+    actual_cash: 0,
     start_time: now,
     status: "active",
     sync_status: "pending",
@@ -51,29 +63,58 @@ export async function startShift(userId: string): Promise<ShiftRecord> {
   return { id: id as number, ...shiftData };
 }
 
-export async function endShift(id: number): Promise<void> {
+export async function endShift(
+  id: number,
+  options?: {
+    closing_meter?: number;
+    testing_liters?: number;
+    expected_cash?: number;
+    actual_cash?: number;
+  }
+): Promise<void> {
   const now = new Date().toISOString();
-  await db.shifts.update(id, { status: "ended", end_time: now });
+  await db.shifts.update(id, {
+    status: "ended",
+    end_time: now,
+    ...(options?.closing_meter !== undefined && {
+      closing_meter: options.closing_meter,
+    }),
+    ...(options?.testing_liters !== undefined && {
+      testing_liters: options.testing_liters,
+    }),
+    ...(options?.expected_cash !== undefined && {
+      expected_cash: options.expected_cash,
+    }),
+    ...(options?.actual_cash !== undefined && {
+      actual_cash: options.actual_cash,
+    }),
+    sync_status: "pending",
+  });
 }
 
 export async function addPendingSale(saleData: {
   shift_id?: string;
-  product_id: string;
+  product_id?: string;
+  product_name?: string;
   total_liters: number;
-  applied_sp: number;
+  price_per_liter?: number;
+  applied_sp?: number;
   applied_cp?: number;
   opening_meter?: number;
   closing_meter?: number;
 }): Promise<number> {
   const now = new Date().toISOString();
+  const price = saleData.price_per_liter ?? saleData.applied_sp ?? 0;
   const id = await db.pendingSales.add({
     shift_id: saleData.shift_id,
-    product_id: saleData.product_id,
+    product_id: saleData.product_id || "manual",
+    product_name: saleData.product_name,
     opening_meter: saleData.opening_meter,
     closing_meter: saleData.closing_meter,
     total_liters: saleData.total_liters,
-    applied_sp: saleData.applied_sp,
-    applied_cp: saleData.applied_cp ?? saleData.applied_sp,
+    price_per_liter: price,
+    applied_sp: price,
+    applied_cp: saleData.applied_cp ?? price,
     sync_status: "pending",
     created_at: now,
   });
@@ -166,41 +207,74 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
  * and optimistically updates the customer's balance offline.
  */
 export async function addPendingLedgerTx(txData: {
-  customer_id: string;
+  customer_id?: string;
+  customer_name: string;
   worker_id?: string;
   liters?: number;
   amount: number;
+  price_per_liter?: number;
   applied_sp?: number;
   transaction_type?: "credit" | "payment";
 }): Promise<number> {
   const now = new Date().toISOString();
   const txType = txData.transaction_type ?? "credit";
+  const price = txData.price_per_liter ?? txData.applied_sp ?? 0;
+  const rawCustomerName = txData.customer_name?.trim() || "Walk-in Customer";
 
-  // 1. Add pending ledger transaction to Dexie
+  // Ensure local customer record exists in Dexie so balance is tracked
+  let customerId = txData.customer_id;
+  if (!customerId) {
+    const existingCust = await db.customers
+      .filter((c) => c.name.toLowerCase() === rawCustomerName.toLowerCase())
+      .first();
+
+    if (existingCust) {
+      customerId = existingCust.id;
+    } else {
+      customerId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `cust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      await db.customers.add({
+        id: customerId,
+        name: rawCustomerName,
+        total_balance: 0,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+  }
+
+  // 1. Add pending ledger transaction to Dexie with raw customer_name and price_per_liter
   const id = await db.pendingLedgerTransactions.add({
-    customer_id: txData.customer_id,
+    customer_id: customerId,
+    customer_name: rawCustomerName,
     worker_id: txData.worker_id,
     liters: txData.liters,
     amount: txData.amount,
-    applied_sp: txData.applied_sp,
+    price_per_liter: price,
+    applied_sp: price,
     transaction_type: txType,
     sync_status: "pending",
     created_at: now,
   });
 
   // 2. Optimistically update local customer balance in Dexie
-  try {
-    const customer = await db.customers.get(txData.customer_id);
-    if (customer) {
-      const balanceDelta = txType === "credit" ? txData.amount : -txData.amount;
-      const updatedBalance = (customer.total_balance || 0) + balanceDelta;
-      await db.customers.update(txData.customer_id, {
-        total_balance: updatedBalance,
-        updated_at: now,
-      });
+  if (customerId) {
+    try {
+      const customer = await db.customers.get(customerId);
+      if (customer) {
+        const balanceDelta = txType === "credit" ? txData.amount : -txData.amount;
+        const updatedBalance = (customer.total_balance || 0) + balanceDelta;
+        await db.customers.update(customerId, {
+          total_balance: updatedBalance,
+          updated_at: now,
+        });
+      }
+    } catch (custErr) {
+      console.warn("Could not update local customer balance in Dexie:", custErr);
     }
-  } catch (custErr) {
-    console.warn("Could not update local customer balance in Dexie:", custErr);
   }
 
   return id as number;

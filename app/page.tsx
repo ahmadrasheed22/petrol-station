@@ -1,19 +1,20 @@
-import { getAuthenticatedUser } from "@/lib/services/user-service";
+import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import ShiftManager from "@/components/ShiftManager";
-import SalesForm from "@/components/SalesForm";
 import ExpenseForm from "@/components/ExpenseForm";
 import DashboardStats from "@/components/DashboardStats";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
 export default async function DashboardPage() {
-  const user = await getAuthenticatedUser();
+  const authData = await getAuthenticatedUserProfile();
 
-  if (!user) {
+  if (!authData) {
     redirect("/login");
   }
+
+  const { user, profile } = authData;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
@@ -59,10 +60,21 @@ export default async function DashboardPage() {
             </Link>
             <SyncIndicator />
             <div className="hidden sm:flex flex-col text-right">
-              <span className="text-xs text-zinc-400">Signed in as</span>
-              <span className="text-sm font-medium text-emerald-400">
-                {user.email}
-              </span>
+              <div className="flex items-center gap-2 justify-end">
+                <span className="text-sm font-semibold text-white">
+                  {profile.name}
+                </span>
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                    profile.role === "owner"
+                      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                      : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                  }`}
+                >
+                  {profile.role}
+                </span>
+              </div>
+              <span className="text-xs text-zinc-400">{user.email}</span>
             </div>
             <form action={logout}>
               <button
@@ -73,13 +85,12 @@ export default async function DashboardPage() {
               </button>
             </form>
           </div>
-
         </div>
       </header>
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* User Session Banner */}
+        {/* User Session Banner displaying actual profile name and role */}
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -87,16 +98,43 @@ export default async function DashboardPage() {
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 Session Active
               </div>
-              <h2 className="text-2xl font-bold text-white">
-                Welcome back, {user.email}
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-white">
+                  Welcome back, {profile.name}
+                </h2>
+                <span
+                  className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                    profile.role === "owner"
+                      ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                      : "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                  }`}
+                >
+                  {profile.role}
+                </span>
+              </div>
               <p className="text-sm text-zinc-400 mt-1">
-                Authenticated session managed via User Service & Proxy Routing.
+                Authenticated session managed via User Service & Profile Engine.
               </p>
             </div>
             <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800/80 text-xs font-mono text-zinc-400 space-y-1">
-              <div><span className="text-zinc-500">User ID:</span> {user.id}</div>
-              <div><span className="text-zinc-500">Last Sign In:</span> {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : 'N/A'}</div>
+              <div>
+                <span className="text-zinc-500">Worker Name:</span>{" "}
+                <span className="text-zinc-200 font-semibold">{profile.name}</span>
+              </div>
+              <div>
+                <span className="text-zinc-500">Role:</span>{" "}
+                <span className="capitalize text-zinc-200">{profile.role}</span>
+              </div>
+              <div>
+                <span className="text-zinc-500">User ID:</span>{" "}
+                <span className="text-zinc-400">{user.id}</span>
+              </div>
+              <div>
+                <span className="text-zinc-500">Last Sign In:</span>{" "}
+                {user.last_sign_in_at
+                  ? new Date(user.last_sign_in_at).toLocaleString()
+                  : "N/A"}
+              </div>
             </div>
           </div>
         </div>
@@ -105,12 +143,15 @@ export default async function DashboardPage() {
         <DashboardStats />
 
         {/* Pump Operations & Expense Logging Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <ShiftManager userId={user.id} />
-          <SalesForm />
+        {/* Note: The old individual "Log Fuel Sale" transaction form has been removed, as we are replacing it with the Shift Opening/Closing Meter Reading form in the next step. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ShiftManager
+            userId={user.id}
+            workerName={profile.name}
+            userRole={profile.role}
+          />
           <ExpenseForm />
         </div>
-
 
         {/* Dashboard Operations Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
