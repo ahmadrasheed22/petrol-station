@@ -8,16 +8,22 @@ import { revalidatePath } from "next/cache";
 
 export interface CreateWorkerInput {
   name: string;
-  phone: string;
+  /** Phone number (digits, Pakistani format) — used if email is absent */
+  phone?: string;
+  /** Real email address — if provided, worker logs in with this instead of phone */
+  email?: string;
   password: string;
-  email?: string; // Optional legacy
 }
 
 export interface WorkerItem {
   id: string;
   name: string;
+  /** Formatted phone number (shown when worker uses phone auth) */
   phone?: string;
+  /** Real email (shown when worker uses email auth) */
   email?: string;
+  /** The credential the worker uses to log in */
+  loginId?: string;
   role: string;
   created_at: string;
   last_sign_in?: string;
@@ -63,7 +69,7 @@ export async function isServiceRoleConfigured(): Promise<boolean> {
 export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
   success: boolean;
   error?: string;
-  user?: { id: string; phone: string; name: string };
+  user?: { id: string; loginId: string; name: string };
 }> {
   try {
     // 1. Authorize: Ensure caller is an authenticated Owner
@@ -77,18 +83,26 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
 
     // 2. Validate inputs
     const name = input.name?.trim();
+    const rawEmail = input.email?.trim().toLowerCase() || "";
     const rawPhone = input.phone?.trim() || "";
-    const cleanPhone = cleanPhoneNumber(rawPhone);
     const password = input.password;
 
     if (!name || name.length < 2) {
       return { success: false, error: "Worker name must be at least 2 characters." };
     }
-    if (!cleanPhone || cleanPhone.length < 7) {
-      return { success: false, error: "A valid phone number (at least 7 digits) is required." };
-    }
     if (!password || password.length < 6) {
       return { success: false, error: "Password must be at least 6 characters long." };
+    }
+
+    // Determine login credential: real email takes priority over phone
+    const useEmail = rawEmail && rawEmail.includes("@");
+    const cleanPhone = useEmail ? "" : cleanPhoneNumber(rawPhone);
+
+    if (!useEmail && (!cleanPhone || cleanPhone.length < 7)) {
+      return {
+        success: false,
+        error: "Please provide either a valid email address or a phone number (at least 7 digits).",
+      };
     }
 
     // 3. Obtain Admin Client with Service Role Key
@@ -101,30 +115,29 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
       };
     }
 
-    // 4. Generate internal dummy email strictly under the hood
-    const dummyEmail = phoneToWorkerEmail(cleanPhone);
+    // 4. Determine the email to use in Supabase Auth
+    const authEmail = useEmail ? rawEmail : phoneToWorkerEmail(cleanPhone);
+    const loginId = useEmail ? rawEmail : formatPhoneDisplay(cleanPhone);
 
     // 5. Create user via Supabase Admin Auth (auto-confirms, does not affect active owner session)
+    const userMetadata: Record<string, string> = { name, role: "worker" };
+    if (!useEmail) userMetadata.phone = cleanPhone;
+
     const { data: createData, error: createError } = await adminClient.auth.admin.createUser({
-      email: dummyEmail,
+      email: authEmail,
       password,
       email_confirm: true,
-      user_metadata: {
-        name,
-        phone: cleanPhone,
-        role: "worker",
-      },
+      user_metadata: userMetadata,
     });
 
     if (createError || !createData.user) {
       let friendlyError = createError?.message || "Failed to create worker account in Supabase Auth.";
       if (friendlyError.toLowerCase().includes("already registered")) {
-        friendlyError = `A worker account with phone number "${formatPhoneDisplay(cleanPhone)}" already exists.`;
+        friendlyError = useEmail
+          ? `A worker account with email "${rawEmail}" already exists.`
+          : `A worker account with phone number "${formatPhoneDisplay(cleanPhone)}" already exists.`;
       }
-      return {
-        success: false,
-        error: friendlyError,
-      };
+      return { success: false, error: friendlyError };
     }
 
     const newUserId = createData.user.id;
@@ -149,11 +162,7 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
 
     return {
       success: true,
-      user: {
-        id: newUserId,
-        phone: cleanPhone,
-        name,
-      },
+      user: { id: newUserId, loginId, name },
     };
   } catch (err: unknown) {
     console.error("Error in createWorkerAccount:", err);

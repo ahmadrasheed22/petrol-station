@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { createWorkerAccount, type WorkerItem } from "@/actions/admin-actions";
 import { formatPhoneDisplay } from "@/lib/utils/phone";
 
+type CredentialMode = "phone" | "email";
+
 interface WorkerManagerProps {
   initialWorkers: WorkerItem[];
   isServiceRoleReady: boolean;
@@ -15,7 +17,9 @@ export default function WorkerManager({
 }: WorkerManagerProps) {
   const [workers, setWorkers] = useState<WorkerItem[]>(initialWorkers);
   const [name, setName] = useState("");
+  const [credMode, setCredMode] = useState<CredentialMode>("phone");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
@@ -31,18 +35,28 @@ export default function WorkerManager({
     e.preventDefault();
     setStatusMessage(null);
 
-    if (!name.trim() || !phone.trim() || !password) {
-      setStatusMessage({
-        type: "error",
-        text: "Please fill in all required fields (Name, Phone Number, Password).",
-      });
+    if (!name.trim()) {
+      setStatusMessage({ type: "error", text: "Worker name is required." });
+      return;
+    }
+    if (!password) {
+      setStatusMessage({ type: "error", text: "Password is required." });
+      return;
+    }
+    if (credMode === "phone" && !phone.trim()) {
+      setStatusMessage({ type: "error", text: "Phone number is required." });
+      return;
+    }
+    if (credMode === "email" && !email.trim()) {
+      setStatusMessage({ type: "error", text: "Email address is required." });
       return;
     }
 
     startTransition(async () => {
       const res = await createWorkerAccount({
         name: name.trim(),
-        phone: phone.trim(),
+        phone: credMode === "phone" ? phone.trim() : undefined,
+        email: credMode === "email" ? email.trim() : undefined,
         password,
       });
 
@@ -52,17 +66,24 @@ export default function WorkerManager({
           text: res.error || "Failed to create worker account.",
         });
       } else {
+        const loginDisplay =
+          credMode === "email" ? email.trim() : formatPhoneDisplay(phone);
+
         setStatusMessage({
           type: "success",
-          text: `Worker account created successfully for "${name}"!`,
-          details: `Worker can immediately sign in using Phone: ${formatPhoneDisplay(phone)}`,
+          text: `Worker account created for "${name}"!`,
+          details:
+            credMode === "email"
+              ? `Worker logs in with Email: ${loginDisplay}`
+              : `Worker logs in with Phone: ${loginDisplay}`,
         });
 
-        // Add to local state
         const newWorker: WorkerItem = {
           id: res.user?.id || Date.now().toString(),
           name,
-          phone: formatPhoneDisplay(phone),
+          phone: credMode === "phone" ? formatPhoneDisplay(phone) : undefined,
+          email: credMode === "email" ? email.trim() : undefined,
+          loginId: res.user?.loginId,
           role: "worker",
           created_at: new Date().toISOString(),
         };
@@ -71,6 +92,7 @@ export default function WorkerManager({
         // Reset form
         setName("");
         setPhone("");
+        setEmail("");
         setPassword("");
       }
     });
@@ -95,32 +117,27 @@ export default function WorkerManager({
 
   return (
     <div className="space-y-8">
-      {/* Service Role Key Warning Banner if missing */}
+      {/* Service Role Key Warning Banner */}
       {!isServiceRoleReady && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 backdrop-blur-md">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400">
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
             <div className="space-y-2 flex-1">
               <h3 className="text-sm font-bold text-amber-300">
-                Setup Action Required: SUPABASE_SERVICE_ROLE_KEY Missing
+                Setup Required: SUPABASE_SERVICE_ROLE_KEY Missing
               </h3>
               <p className="text-xs text-amber-200/90 leading-relaxed">
-                To create worker accounts without terminating your active owner session, Next.js requires the Supabase Service Role Secret Key.
+                To create worker accounts without terminating your active owner session, add the Supabase Service Role Secret Key to your environment.
               </p>
               <div className="rounded-xl border border-amber-500/20 bg-zinc-950/80 p-3 text-xs font-mono text-amber-300/90 space-y-1">
-                <p className="text-zinc-400">Add this line to your <span className="text-white font-bold">.env.local</span> file:</p>
+                <p className="text-zinc-400">Add to your <span className="text-white font-bold">.env.local</span> file:</p>
                 <p className="text-emerald-400 select-all">SUPABASE_SERVICE_ROLE_KEY=your_service_role_secret_key_here</p>
                 <p className="text-[11px] text-zinc-500 font-sans mt-2">
-                  👉 Find it at: Supabase Dashboard &rarr; Project Settings &rarr; API &rarr; Project API Keys &rarr; <span className="text-zinc-300">service_role (secret)</span>.
+                  👉 Supabase Dashboard → Project Settings → API → service_role (secret)
                 </p>
               </div>
             </div>
@@ -128,28 +145,23 @@ export default function WorkerManager({
         </div>
       )}
 
-      {/* Main Grid: Form on Left/Top, Roster on Right/Bottom */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Worker Creation Form */}
+        {/* Left: Worker Creation Form */}
         <div className="lg:col-span-5 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
           <div className="flex items-center gap-3 mb-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
               </svg>
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Create Worker Account</h2>
-              <p className="text-xs text-zinc-400">Direct provisioning with pre-verified credentials</p>
+              <p className="text-xs text-zinc-400">Provision with phone number or email</p>
             </div>
           </div>
 
-          {/* Feedback Alerts */}
+          {/* Feedback */}
           {statusMessage && (
             <div
               className={`mb-6 rounded-xl border p-4 text-xs ${
@@ -179,6 +191,7 @@ export default function WorkerManager({
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Worker Name */}
             <div>
               <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-1.5">
                 Worker Full Name
@@ -193,35 +206,91 @@ export default function WorkerManager({
               />
             </div>
 
+            {/* Credential Mode Toggle */}
             <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-1.5">
-                Worker Phone Number
+              <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-2">
+                Login Credential Type
               </label>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-zinc-400">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                    />
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-950/80 p-1.5 border border-zinc-800/80">
+                <button
+                  type="button"
+                  id="cred-mode-phone"
+                  onClick={() => setCredMode("phone")}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all cursor-pointer ${
+                    credMode === "phone"
+                      ? "bg-emerald-600 text-white shadow-md"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
-                </div>
-                <input
-                  type="tel"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="0300 1234567"
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all font-mono"
-                />
+                  Phone Number
+                </button>
+                <button
+                  type="button"
+                  id="cred-mode-email"
+                  onClick={() => setCredMode("email")}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all cursor-pointer ${
+                    credMode === "email"
+                      ? "bg-amber-500 text-zinc-950 shadow-md"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                  </svg>
+                  Email Address
+                </button>
               </div>
-              <p className="mt-1.5 text-[11px] text-zinc-400">
-                Used as the worker&apos;s login ID. Attendants do not need an email address.
-              </p>
             </div>
 
+            {/* Credential Input */}
+            {credMode === "phone" ? (
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-1.5">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-zinc-400">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="0300 1234567"
+                    className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all font-mono"
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] text-zinc-400">Worker logs in with this phone number.</p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-1.5">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-zinc-400">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                    </svg>
+                  </div>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="worker@station.com"
+                    className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 pl-10 pr-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all"
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] text-zinc-400">Worker logs in with this email address.</p>
+              </div>
+            )}
+
+            {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400">
@@ -230,7 +299,7 @@ export default function WorkerManager({
                 <button
                   type="button"
                   onClick={generateRandomPassword}
-                  className="text-[11px] font-medium text-amber-400 hover:text-amber-300 underline"
+                  className="text-[11px] font-medium text-amber-400 hover:text-amber-300 underline cursor-pointer"
                 >
                   Generate Strong
                 </button>
@@ -247,32 +316,12 @@ export default function WorkerManager({
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 cursor-pointer"
                 >
                   {showPassword ? (
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"
-                      />
-                    </svg>
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
                   ) : (
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      />
-                    </svg>
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                   )}
                 </button>
               </div>
@@ -280,13 +329,14 @@ export default function WorkerManager({
 
             <div className="pt-2">
               <button
+                id="btn-create-worker"
                 type="submit"
                 disabled={isPending || !isServiceRoleReady}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-3.5 text-sm font-bold text-zinc-950 shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-3.5 text-sm font-bold text-zinc-950 shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50 transition-all cursor-pointer"
               >
                 {isPending ? (
                   <>
-                    <svg className="h-4 w-4 animate-spin text-zinc-950" fill="none" viewBox="0 0 24 24">
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
@@ -305,7 +355,7 @@ export default function WorkerManager({
           </form>
         </div>
 
-        {/* Right Column: Worker Directory Table */}
+        {/* Right: Worker Directory */}
         <div className="lg:col-span-7 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
@@ -317,8 +367,6 @@ export default function WorkerManager({
               </div>
               <p className="text-xs text-zinc-400">Staff members authorized for shift duties</p>
             </div>
-
-            {/* Search Input */}
             <div className="w-full sm:w-56">
               <input
                 type="text"
@@ -334,18 +382,11 @@ export default function WorkerManager({
             <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/50 text-zinc-500 mb-3">
                 <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </div>
               <p className="text-sm font-semibold text-zinc-300">No worker accounts found</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Use the form on the left to add your first station worker.
-              </p>
+              <p className="mt-1 text-xs text-zinc-500">Use the form to add your first station worker.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -353,56 +394,73 @@ export default function WorkerManager({
                 <thead>
                   <tr className="border-b border-zinc-800 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                     <th className="pb-3 pl-2">Worker</th>
-                    <th className="pb-3">Phone / Login ID</th>
-                    <th className="pb-3">Role</th>
+                    <th className="pb-3">Login Credential</th>
+                    <th className="pb-3">Type</th>
                     <th className="pb-3 pr-2 text-right">Created</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/50">
-                  {filteredWorkers.map((worker) => (
-                    <tr key={worker.id} className="hover:bg-zinc-800/20 transition-colors">
-                      <td className="py-3.5 pl-2">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/20 font-bold text-emerald-400">
-                            {worker.name.charAt(0).toUpperCase()}
+                  {filteredWorkers.map((worker) => {
+                    const hasPhone = Boolean(worker.phone);
+                    const displayCred = hasPhone
+                      ? worker.phone
+                      : worker.email && !worker.email.includes("@pump.worker")
+                      ? worker.email
+                      : worker.loginId || "—";
+
+                    return (
+                      <tr key={worker.id} className="hover:bg-zinc-800/20 transition-colors">
+                        <td className="py-3.5 pl-2">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/20 font-bold text-emerald-400">
+                              {worker.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-zinc-100">{worker.name}</p>
+                              <p className="text-[10px] text-zinc-500 font-mono">
+                                ID: {worker.id.slice(0, 8)}...
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-semibold text-zinc-100">{worker.name}</p>
-                            <p className="text-[10px] text-zinc-500 font-mono">
-                              ID: {worker.id.slice(0, 8)}...
-                            </p>
+                        </td>
+                        <td className="py-3.5 text-zinc-300 font-mono">
+                          <div className="flex items-center gap-1.5">
+                            {hasPhone ? (
+                              <svg className="h-3.5 w-3.5 text-emerald-400/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                              </svg>
+                            ) : (
+                              <svg className="h-3.5 w-3.5 text-amber-400/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                              </svg>
+                            )}
+                            <span className="font-semibold text-zinc-200 text-[11px]">{displayCred}</span>
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-3.5 text-zinc-300 font-mono">
-                        <div className="flex items-center gap-1.5">
-                          <svg className="h-3.5 w-3.5 text-amber-400/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                            />
-                          </svg>
-                          <span className="font-semibold text-zinc-200">
-                            {worker.phone || (worker.email && !worker.email.includes("@pump.worker") ? worker.email : "—")}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3.5">
-                        <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-                          WORKER
-                        </span>
-                      </td>
-                      <td className="py-3.5 pr-2 text-right text-zinc-400">
-                        {new Date(worker.created_at).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-3.5">
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                              WORKER
+                            </span>
+                            <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-medium ${
+                              hasPhone
+                                ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-500/70"
+                                : "border-amber-500/20 bg-amber-500/5 text-amber-500/70"
+                            }`}>
+                              {hasPhone ? "Phone" : "Email"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 pr-2 text-right text-zinc-400">
+                          {new Date(worker.created_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
