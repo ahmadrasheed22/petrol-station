@@ -39,13 +39,18 @@ export default function PumpConfigLive({ initialData }: Props) {
     setError("");
     const formData = new FormData(e.currentTarget);
     try {
-      await addFuelTank({
+      const res = await addFuelTank({
         tank_number: formData.get("tank_number") as string,
         fuel_type: formData.get("fuel_type") as string,
         capacity_liters: Number(formData.get("capacity_liters")),
         current_liters: Number(formData.get("current_liters")),
       });
-      window.location.reload();
+      if (!res.success) {
+        setError(res.error || "Failed to add tank");
+        setIsLoading(false);
+      } else {
+        window.location.reload();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to add tank");
       setIsLoading(false);
@@ -58,13 +63,18 @@ export default function PumpConfigLive({ initialData }: Props) {
     setError("");
     const formData = new FormData(e.currentTarget);
     try {
-      await addPumpMachine({
+      const res = await addPumpMachine({
         machine_number: formData.get("machine_number") as string,
         fuel_type: formData.get("fuel_type") as string,
         tank_id: formData.get("tank_id") as string || null,
         status: formData.get("status") as string,
       });
-      window.location.reload();
+      if (!res.success) {
+        setError(res.error || "Failed to add machine");
+        setIsLoading(false);
+      } else {
+        window.location.reload();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to add machine");
       setIsLoading(false);
@@ -77,7 +87,7 @@ export default function PumpConfigLive({ initialData }: Props) {
     setError("");
     const formData = new FormData(e.currentTarget);
     try {
-      await addMachineMeter({
+      const res = await addMachineMeter({
         machine_id: formData.get("machine_id") as string,
         meter_number: formData.get("meter_number") as string,
         label: formData.get("label") as string,
@@ -86,7 +96,12 @@ export default function PumpConfigLive({ initialData }: Props) {
         fuel_type: formData.get("fuel_type") as string,
         status: formData.get("status") as string,
       });
-      window.location.reload();
+      if (!res.success) {
+        setError(res.error || "Failed to add meter");
+        setIsLoading(false);
+      } else {
+        window.location.reload();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to add meter");
       setIsLoading(false);
@@ -97,10 +112,17 @@ export default function PumpConfigLive({ initialData }: Props) {
     if (!window.confirm("Are you sure?")) return;
     setIsLoading(true);
     try {
-      if (type === "tank") await deleteFuelTank(id);
-      if (type === "machine") await deletePumpMachine(id);
-      if (type === "meter") await deleteMachineMeter(id);
-      window.location.reload();
+      let res: { success: boolean, error?: string } = { success: true };
+      if (type === "tank") res = await deleteFuelTank(id);
+      if (type === "machine") res = await deletePumpMachine(id);
+      if (type === "meter") res = await deleteMachineMeter(id);
+      
+      if (!res.success) {
+        setError(res.error || "Failed to delete");
+        setIsLoading(false);
+      } else {
+        window.location.reload();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to delete");
       setIsLoading(false);
