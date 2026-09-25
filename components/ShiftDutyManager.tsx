@@ -468,7 +468,7 @@ export default function ShiftDutyManager({
                   Active Duty Summary
                 </span>
                 <span className="text-[11px] font-mono text-zinc-400">
-                  Started: {new Date(activeShift.start_time).toLocaleTimeString()}
+                  Started: {new Date(activeShift.start_time).toLocaleTimeString("en-US")}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">

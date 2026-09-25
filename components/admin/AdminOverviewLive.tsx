@@ -12,9 +12,12 @@ interface AdminOverviewLiveProps {
 export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProps) {
   const [data, setData] = useState<OverviewStats>(initialData);
   const [highlightedShiftId, setHighlightedShiftId] = useState<string | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState<string>(() =>
-    new Date().toLocaleTimeString("en-US")
-  );
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
+
+  // Set initial sync time client-side only to avoid hydration mismatch
+  useEffect(() => {
+    setLastSyncTime(new Date().toLocaleTimeString("en-US"));
+  }, []);
 
   // Keep state updated when router.refresh() supplies new server-rendered initialData
   useEffect(() => {
@@ -378,12 +381,12 @@ export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProp
                               )}
                             </div>
                             <p className="text-[10px] text-zinc-500">
-                              {new Date(shift.start_time).toLocaleDateString(undefined, {
+                              {new Date(shift.start_time).toLocaleDateString("en-US", {
                                 month: "short",
                                 day: "numeric",
                               })}{" "}
                               at{" "}
-                              {new Date(shift.start_time).toLocaleTimeString(undefined, {
+                              {new Date(shift.start_time).toLocaleTimeString("en-US", {
                                 hour: "2-digit",
                                 minute: "2-digit",
                               })}
