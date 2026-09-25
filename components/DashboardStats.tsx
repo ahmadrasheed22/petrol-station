@@ -189,7 +189,7 @@ export default function DashboardStats() {
           </div>
           <p className="text-xs text-zinc-400 mt-1 truncate">
             {activeShift
-              ? `Open Meter: ${activeShift.opening_meter?.toLocaleString() ?? 0} | Started ${new Date(activeShift.start_time).toLocaleTimeString()}`
+              ? `Open Meter: ${activeShift.opening_meter?.toLocaleString() ?? 0} | Started ${new Date(activeShift.start_time).toLocaleTimeString("en-US")}`
               : "Start a duty to begin recording meter readings"}
           </p>
         </div>
