@@ -218,10 +218,17 @@ export default function ShiftDutyMeterReadings({
       return;
     }
 
+    if (typeof activeShift.id !== "number") {
+      setMessage({ type: "error", text: "Start duty before saving progress." });
+      return;
+    }
+
+    const activeShiftId = activeShift.id;
+
     setMessage(null);
     setIsProcessing(true);
     try {
-      await db.shifts.update(activeShift.id, {
+      await db.shifts.update(activeShiftId, {
         meter_readings_draft: buildMeterDraft(),
         status: "active",
         sync_status: "pending",
@@ -327,6 +334,13 @@ export default function ShiftDutyMeterReadings({
       return;
     }
 
+    if (typeof activeShift.id !== "number") {
+      setMessage({ type: "error", text: "Start duty before ending duty." });
+      return;
+    }
+
+    const activeShiftId = activeShift.id;
+
     setIsProcessing(true);
     try {
       const supabase = createClient();
@@ -349,8 +363,8 @@ export default function ShiftDutyMeterReadings({
         throw new Error(error.message);
       }
 
-      await endShift(activeShift.id);
-      await db.shifts.update(activeShift.id, {
+      await endShift(activeShiftId);
+      await db.shifts.update(activeShiftId, {
         meter_readings_draft: undefined,
       } as Partial<ShiftRecordWithMeterDraft>);
       setPendingShift(null);
