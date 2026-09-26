@@ -4,6 +4,8 @@ import AdminNav from "@/components/admin/AdminNav";
 import AdminRealtimeSync from "@/components/admin/AdminRealtimeSync";
 import { redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Admin Portal | Petrol Station Management",
   description: "Executive Owner Dashboard for Sales, Shortages, Workers, and Fuel Inventory",

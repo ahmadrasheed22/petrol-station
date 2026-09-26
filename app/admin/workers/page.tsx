@@ -1,6 +1,8 @@
 import { getWorkersList, isServiceRoleConfigured } from "@/actions/admin-actions";
 import WorkerManager from "@/components/admin/WorkerManager";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Worker Management | Station Admin Hub",
   description: "Create new worker accounts with phone-based credentials and manage station staff.",
