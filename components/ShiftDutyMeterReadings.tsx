@@ -4,8 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { getPumpConfig, getShiftMeterReadings } from "@/actions/pump-actions";
 import { createClient } from "@/lib/supabase/client";
-import { db, type ShiftRecord } from "@/lib/offline-db";
-import { endShift, startShift } from "@/lib/services/offline-service";
+import {
+  db,
+  type PendingExpense,
+  type PendingLedgerTransaction,
+  type PendingSale,
+  type ShiftRecord,
+} from "@/lib/offline-db";
+import { startShift } from "@/lib/services/offline-service";
+import { syncShiftsToCloud } from "@/actions/db-actions";
 
 interface Machine {
   id: string;
@@ -31,15 +38,19 @@ interface MeterReading {
   machineNumber: string;
   openingReading: string;
   closingReading: string;
+  pricePerLiter: string;
 }
 
 interface ShiftMeterDraft {
   openingReading: string;
   closingReading: string;
+  pricePerLiter?: string;
 }
 
 interface ShiftRecordWithMeterDraft extends ShiftRecord {
   meter_readings_draft?: Record<string, ShiftMeterDraft>;
+  meter_readings_uploaded?: boolean;
+  meter_readings_upload_recorded_at?: string;
 }
 
 interface ShiftDutyMeterReadingsProps {
@@ -51,18 +62,40 @@ const fuelTypeOrder = ["Petrol", "Diesel", "Hi-Octane"];
 
 const formatReading = (value: number) => value.toFixed(2);
 
+const applyDraftIfAvailable = (
+  baseReadings: Record<string, MeterReading>,
+  activeShift: ShiftRecord | null | undefined
+): Record<string, MeterReading> => {
+  const draft = (activeShift as ShiftRecordWithMeterDraft | null)?.meter_readings_draft;
+  if (!draft) return baseReadings;
+
+  const mergedReadings = { ...baseReadings };
+  Object.entries(draft).forEach(([meterId, meterDraft]) => {
+    if (!mergedReadings[meterId]) return;
+    mergedReadings[meterId] = {
+      ...mergedReadings[meterId],
+      openingReading: meterDraft.openingReading ?? mergedReadings[meterId].openingReading,
+      closingReading: meterDraft.closingReading ?? mergedReadings[meterId].closingReading,
+      pricePerLiter: meterDraft.pricePerLiter ?? mergedReadings[meterId].pricePerLiter,
+    };
+  });
+
+  return mergedReadings;
+};
+
 export default function ShiftDutyMeterReadings({
   userId,
   workerName,
 }: ShiftDutyMeterReadingsProps) {
-  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [meters, setMeters] = useState<Meter[]>([]);
   const [readings, setReadings] = useState<Record<string, MeterReading>>({});
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [pendingShift, setPendingShift] = useState<ShiftRecord | null>(null);
+  const [pendingShift, setPendingShift] = useState<ShiftRecordWithMeterDraft | null>(null);
+  const [endedShiftId, setEndedShiftId] = useState<number | null>(null);
+  const [readingsDirty, setReadingsDirty] = useState(false);
 
   const liveActiveShift = useLiveQuery(
     async () => {
@@ -73,15 +106,10 @@ export default function ShiftDutyMeterReadings({
     null
   );
 
-  const activeShift = liveActiveShift ?? pendingShift;
+  const currentShift = pendingShift ?? liveActiveShift;
+  const activeShift = currentShift?.id === endedShiftId ? null : currentShift;
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-
     async function loadPumpConfig() {
       setLoading(true);
       try {
@@ -118,10 +146,12 @@ export default function ShiftDutyMeterReadings({
             machineNumber: machine?.machine_number || "Unknown",
             openingReading,
             closingReading: "",
+            pricePerLiter: "",
           };
         });
 
-        setReadings(applyDraftIfAvailable(initialReadings));
+        const localActiveShift = await db.shifts.where("status").equals("active").first();
+        setReadings(applyDraftIfAvailable(initialReadings, localActiveShift));
       } catch (err) {
         console.error("Failed to load pump config:", err);
         setMessage({ type: "error", text: "Failed to load meter configuration." });
@@ -131,7 +161,7 @@ export default function ShiftDutyMeterReadings({
     }
 
     loadPumpConfig();
-  }, [mounted]);
+  }, []);
 
   const metersByFuelType = useMemo(() => {
     const grouped: Record<string, Meter[]> = {};
@@ -158,6 +188,13 @@ export default function ShiftDutyMeterReadings({
     return Math.max(0, c - o);
   };
 
+  const calculateSaleAmount = (reading: MeterReading | undefined): number => {
+    if (!reading || !reading.closingReading.trim()) return 0;
+    const dispensed = (parseFloat(reading.closingReading) || 0) -
+      (parseFloat(reading.openingReading) || 0);
+    return dispensed * (parseFloat(reading.pricePerLiter) || 0);
+  };
+
   const buildMeterDraft = (): Record<string, ShiftMeterDraft> => {
     const draft: Record<string, ShiftMeterDraft> = {};
 
@@ -166,33 +203,15 @@ export default function ShiftDutyMeterReadings({
       draft[meter.id] = {
         openingReading: reading?.openingReading || "",
         closingReading: reading?.closingReading || "",
+        pricePerLiter: reading?.pricePerLiter || "",
       };
     });
 
     return draft;
   };
 
-  const applyDraftIfAvailable = (
-    baseReadings: Record<string, MeterReading>
-  ): Record<string, MeterReading> => {
-    const draft = (activeShift as ShiftRecordWithMeterDraft | null)?.meter_readings_draft;
-    if (!draft) return baseReadings;
-
-    const mergedReadings: Record<string, MeterReading> = { ...baseReadings };
-
-    Object.entries(draft).forEach(([meterId, meterDraft]) => {
-      if (!mergedReadings[meterId]) return;
-      mergedReadings[meterId] = {
-        ...mergedReadings[meterId],
-        openingReading: meterDraft.openingReading ?? mergedReadings[meterId].openingReading,
-        closingReading: meterDraft.closingReading ?? mergedReadings[meterId].closingReading,
-      };
-    });
-
-    return mergedReadings;
-  };
-
   const handleOpeningChange = (meterId: string, value: string) => {
+    setReadingsDirty(true);
     setReadings((prev) => ({
       ...prev,
       [meterId]: {
@@ -203,11 +222,23 @@ export default function ShiftDutyMeterReadings({
   };
 
   const handleClosingChange = (meterId: string, value: string) => {
+    setReadingsDirty(true);
     setReadings((prev) => ({
       ...prev,
       [meterId]: {
         ...prev[meterId],
         closingReading: value,
+      },
+    }));
+  };
+
+  const handlePriceChange = (meterId: string, value: string) => {
+    setReadingsDirty(true);
+    setReadings((prev) => ({
+      ...prev,
+      [meterId]: {
+        ...prev[meterId],
+        pricePerLiter: value,
       },
     }));
   };
@@ -230,9 +261,16 @@ export default function ShiftDutyMeterReadings({
     try {
       await db.shifts.update(activeShiftId, {
         meter_readings_draft: buildMeterDraft(),
+        meter_readings_uploaded: false,
         status: "active",
-        sync_status: "pending",
+        sync_status: "draft",
       } as Partial<ShiftRecordWithMeterDraft>);
+      setPendingShift({
+        ...activeShift,
+        meter_readings_draft: buildMeterDraft(),
+        meter_readings_uploaded: false,
+        sync_status: "draft",
+      });
 
       setMessage({
         type: "success",
@@ -261,6 +299,7 @@ export default function ShiftDutyMeterReadings({
             "Unknown",
           openingReading: existingReading?.openingReading || formatReading(meter.current_reading ?? meter.initial_reading ?? 0),
           closingReading: "",
+          pricePerLiter: existingReading?.pricePerLiter || "",
         };
       });
 
@@ -278,8 +317,10 @@ export default function ShiftDutyMeterReadings({
 
     setIsProcessing(true);
     try {
-      const newShift = await startShift(userId, { worker_name: workerName });
+      const newShift = await startShift(userId, { worker_name: workerName, deferSync: true });
       setPendingShift(newShift);
+      setEndedShiftId(null);
+      setReadingsDirty(false);
       hydrateOpeningReadings();
       setMessage({
         type: "success",
@@ -296,18 +337,17 @@ export default function ShiftDutyMeterReadings({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateReadings = (): boolean => {
     setMessage(null);
 
     if (!activeShift) {
       setMessage({ type: "error", text: "Start duty before entering meter readings." });
-      return;
+      return false;
     }
 
     if (meters.length === 0) {
       setMessage({ type: "error", text: "No active meters are configured." });
-      return;
+      return false;
     }
 
     const hasMissingClosing = meters.some((meter) => !readings[meter.id]?.closingReading.trim());
@@ -316,7 +356,7 @@ export default function ShiftDutyMeterReadings({
         type: "error",
         text: "Enter closing readings for every active meter before ending duty.",
       });
-      return;
+      return false;
     }
 
     const hasInvalidReadings = meters.some((meter) => {
@@ -331,90 +371,235 @@ export default function ShiftDutyMeterReadings({
         type: "error",
         text: "Each closing reading must be greater than or equal to its opening reading.",
       });
-      return;
+      return false;
     }
 
-    if (typeof activeShift.id !== "number") {
-      setMessage({ type: "error", text: "Start duty before ending duty." });
-      return;
+    const hasInvalidPrice = meters.some((meter) => {
+      const price = parseFloat(readings[meter.id]?.pricePerLiter ?? "");
+      return Number.isNaN(price) || price <= 0;
+    });
+
+    if (hasInvalidPrice) {
+      setMessage({ type: "error", text: "Enter a price per liter greater than Rs. 0 for every nozzle." });
+      return false;
     }
+
+    return true;
+  };
+
+  const handleUpload = async () => {
+    if (!validateReadings() || !activeShift || typeof activeShift.id !== "number") return;
 
     const activeShiftId = activeShift.id;
 
     setIsProcessing(true);
     try {
       const supabase = createClient();
-      const recordedAt = new Date().toISOString();
+      const shiftWithDraft = activeShift as ShiftRecordWithMeterDraft;
+      const recordedAt = shiftWithDraft.meter_readings_upload_recorded_at ?? new Date().toISOString();
+      await db.shifts.update(activeShiftId, {
+        meter_readings_upload_recorded_at: recordedAt,
+        meter_readings_draft: buildMeterDraft(),
+      } as Partial<ShiftRecordWithMeterDraft>);
+      setPendingShift({
+        ...activeShift,
+        meter_readings_upload_recorded_at: recordedAt,
+        meter_readings_draft: buildMeterDraft(),
+      });
+
+      const shiftResult = await syncShiftsToCloud([{
+        shift_id: activeShift.shift_id,
+        user_id: activeShift.user_id,
+        worker_name: activeShift.worker_name,
+        start_time: activeShift.start_time,
+        created_at: activeShift.created_at,
+      }]);
+      if (!shiftResult.success) throw new Error(shiftResult.error || "Failed to upload duty session.");
 
       const meterReadingsData = meters.map((meter) => {
         const reading = readings[meter.id];
+        const litersDispensed = calculateDispensed(reading.openingReading, reading.closingReading);
+        const pricePerLiter = parseFloat(reading.pricePerLiter || "0");
+        const totalAmount = litersDispensed * pricePerLiter;
+
         return {
           meter_id: meter.id,
           worker_id: userId,
           opening_reading: parseFloat(reading.openingReading),
           closing_reading: parseFloat(reading.closingReading),
-          liters_dispensed: calculateDispensed(reading.openingReading, reading.closingReading),
+          liters_dispensed: litersDispensed,
+          price_per_liter: pricePerLiter,
+          total_amount: totalAmount,
           recorded_at: recordedAt,
         };
       });
 
-      const { error } = await supabase.from("shift_meter_readings").insert(meterReadingsData);
-      if (error) {
-        throw new Error(error.message);
+      const { data: existingReadings, error: lookupError } = await supabase
+        .from("shift_meter_readings")
+        .select("id, meter_id")
+        .eq("worker_id", userId)
+        .eq("recorded_at", recordedAt);
+      if (lookupError) throw new Error(lookupError.message);
+
+      const inserts = [];
+      for (const reading of meterReadingsData) {
+        const existing = existingReadings?.find((record) => record.meter_id === reading.meter_id);
+        if (existing) {
+          const { error } = await supabase
+            .from("shift_meter_readings")
+            .update(reading)
+            .eq("id", existing.id);
+          if (error) throw new Error(error.message);
+        } else {
+          inserts.push(reading);
+        }
       }
 
-      await endShift(activeShiftId);
+      if (inserts.length > 0) {
+        const { error } = await supabase.from("shift_meter_readings").insert(inserts);
+        if (error) throw new Error(error.message);
+      }
+
       await db.shifts.update(activeShiftId, {
-        meter_readings_draft: undefined,
+        sync_status: "synced",
+        meter_readings_uploaded: true,
       } as Partial<ShiftRecordWithMeterDraft>);
-      setPendingShift(null);
-
-      setReadings((prev) => {
-        const nextReadings: Record<string, MeterReading> = {};
-
-        meters.forEach((meter) => {
-          const reading = prev[meter.id];
-          nextReadings[meter.id] = {
-            ...reading,
-            openingReading: reading.closingReading || reading.openingReading,
-            closingReading: "",
-          };
-        });
-
-        return nextReadings;
-      });
-
-      setMessage({ type: "success", text: `Duty ended and uploaded for ${workerName}.` });
+      setPendingShift((previous) => ({
+        ...(previous ?? activeShift),
+        sync_status: "synced",
+        meter_readings_uploaded: true,
+        meter_readings_upload_recorded_at: recordedAt,
+        meter_readings_draft: buildMeterDraft(),
+      }));
+      setReadingsDirty(false);
+      setMessage({ type: "success", text: `Meter readings uploaded for ${workerName}. Duty remains active.` });
     } catch (err) {
-      console.error("Failed to save meter readings:", err);
+      console.error("Failed to upload meter readings:", err);
       setMessage({
         type: "error",
-        text: err instanceof Error ? err.message : "Failed to save meter readings.",
+        text: err instanceof Error ? err.message : "Failed to upload meter readings.",
       });
     } finally {
       setIsProcessing(false);
     }
   };
 
-  if (!mounted) {
-    return (
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl animate-pulse space-y-4">
-        <div className="h-6 w-48 bg-zinc-800 rounded" />
-        <div className="h-32 bg-zinc-800/40 rounded-xl" />
-        <div className="h-10 bg-zinc-800/50 rounded-xl" />
-      </div>
-    );
-  }
+  const handleEndDuty = async () => {
+    if (!activeShift || typeof activeShift.id !== "number") return;
 
-  if (loading) {
-    return (
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
-        <p className="text-zinc-400">Loading meter configuration...</p>
-      </div>
-    );
-  }
+    const shiftWithDraft = activeShift as ShiftRecordWithMeterDraft;
+    if (!shiftWithDraft.meter_readings_uploaded || readingsDirty) {
+      setMessage({ type: "error", text: "Upload the current meter readings before ending duty." });
+      return;
+    }
 
-  if (Object.keys(metersByFuelType).length === 0) {
+    const activeShiftId = activeShift.id;
+    const endTime = new Date().toISOString();
+    let localSnapshot: {
+      shifts: ShiftRecordWithMeterDraft[];
+      expenses: PendingExpense[];
+      ledger: PendingLedgerTransaction[];
+      sales: PendingSale[];
+    } | null = null;
+    setIsProcessing(true);
+    try {
+      const [pendingExpenses, pendingLedger, pendingSales, pendingShifts] = await Promise.all([
+        db.pendingExpenses.where("sync_status").anyOf(["draft", "pending", "failed"]).count(),
+        db.pendingLedgerTransactions.where("sync_status").anyOf(["pending", "failed"]).count(),
+        db.pendingSales.where("sync_status").anyOf(["pending", "failed"]).count(),
+        db.shifts.where("sync_status").anyOf(["draft", "pending", "failed"]).count(),
+      ]);
+      if (pendingExpenses + pendingLedger + pendingSales + pendingShifts > 0) {
+        setMessage({
+          type: "error",
+          text: "Upload or sync saved duty records before ending duty so the owner receives every record.",
+        });
+        return;
+      }
+
+      localSnapshot = await db.transaction(
+        "r",
+        db.shifts,
+        db.pendingExpenses,
+        db.pendingLedgerTransactions,
+        db.pendingSales,
+        async () => ({
+          shifts: (await db.shifts.toArray()) as ShiftRecordWithMeterDraft[],
+          expenses: await db.pendingExpenses.toArray(),
+          ledger: await db.pendingLedgerTransactions.toArray(),
+          sales: await db.pendingSales.toArray(),
+        })
+      );
+      await db.transaction(
+        "rw",
+        db.shifts,
+        db.pendingExpenses,
+        db.pendingLedgerTransactions,
+        db.pendingSales,
+        async () => {
+          await db.shifts.clear();
+          await db.pendingExpenses.clear();
+          await db.pendingLedgerTransactions.clear();
+          await db.pendingSales.clear();
+        }
+      );
+      setEndedShiftId(activeShiftId);
+      setPendingShift(null);
+      setReadingsDirty(false);
+
+      const result = await syncShiftsToCloud([{
+        shift_id: activeShift.shift_id,
+        user_id: activeShift.user_id,
+        worker_name: activeShift.worker_name,
+        start_time: activeShift.start_time,
+        end_time: endTime,
+        created_at: activeShift.created_at,
+      }]);
+      if (!result.success) throw new Error(result.error || "Failed to close duty in the owner's database.");
+      setReadings((previous) => {
+        const next = { ...previous };
+        meters.forEach((meter) => {
+          const reading = previous[meter.id];
+          next[meter.id] = {
+            ...reading,
+            openingReading: reading?.closingReading || reading?.openingReading || "0.00",
+            closingReading: "",
+          };
+        });
+        return next;
+      });
+      setMessage({ type: "success", text: "Duty ended. Local duty records and recent entries were cleared." });
+    } catch (err) {
+      console.error("Failed to end duty:", err);
+      if (localSnapshot) {
+        const snapshotToRestore = localSnapshot;
+        try {
+          await db.transaction(
+            "rw",
+            db.shifts,
+            db.pendingExpenses,
+            db.pendingLedgerTransactions,
+            db.pendingSales,
+            async () => {
+              await db.shifts.bulkPut(snapshotToRestore.shifts);
+              await db.pendingExpenses.bulkPut(snapshotToRestore.expenses);
+              await db.pendingLedgerTransactions.bulkPut(snapshotToRestore.ledger);
+              await db.pendingSales.bulkPut(snapshotToRestore.sales);
+            }
+          );
+          setEndedShiftId(null);
+          setPendingShift(snapshotToRestore.shifts.find((shift) => shift.id === activeShiftId) ?? null);
+        } catch (restoreError) {
+          console.error("Failed to restore local duty records:", restoreError);
+        }
+      }
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to end duty." });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  if (!loading && Object.keys(metersByFuelType).length === 0) {
     return (
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
         <p className="text-zinc-400">No active meters configured. Please contact administrator.</p>
@@ -483,20 +668,22 @@ export default function ShiftDutyMeterReadings({
           <div className="space-y-2">
             <h3 className="text-base font-semibold text-white">You must start a shift to enter meter readings.</h3>
             <p className="text-sm text-zinc-400">
-              Meter inputs stay locked until duty is officially started and the worker session time is recorded.
+              {loading
+                ? "Loading meter setup..."
+                : "Meter inputs stay locked until duty is officially started and the worker session time is recorded."}
             </p>
           </div>
           <button
             type="button"
             onClick={handleStartDuty}
-            disabled={isProcessing}
+            disabled={isProcessing || loading}
             className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 cursor-pointer"
           >
-            {isProcessing ? "Starting Duty..." : "Start Duty"}
+            {isProcessing ? "Starting Duty..." : loading ? "Loading Meter Setup..." : "Start Duty"}
           </button>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
           <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -549,7 +736,7 @@ export default function ShiftDutyMeterReadings({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-2">
+              <div className="grid grid-cols-1 gap-4 ml-2 lg:grid-cols-2">
                 {metersByFuelType[fuelType].map((meter) => {
                   const reading = readings[meter.id];
                   const opening = reading?.openingReading || "0.00";
@@ -570,7 +757,7 @@ export default function ShiftDutyMeterReadings({
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <div>
                           <label className="block text-xs font-medium text-zinc-300 mb-1.5">
                             Opening Reading
@@ -602,13 +789,37 @@ export default function ShiftDutyMeterReadings({
                             className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
                           />
                         </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                            Price per Liter (Rs)
+                          </label>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={reading?.pricePerLiter || ""}
+                            onChange={(event) => handlePriceChange(meter.id, event.target.value)}
+                            placeholder="e.g., 275.00"
+                            className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                          />
+                        </div>
                       </div>
 
-                      <div className="rounded-lg bg-zinc-900 px-3 py-2 border border-zinc-700/50">
-                        <p className="text-xs text-zinc-400 mb-1">Liters Dispensed</p>
-                        <p className={`text-lg font-bold ${dispensed > 0 ? "text-emerald-400" : "text-zinc-500"}`}>
-                          {dispensed.toFixed(2)} L
-                        </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg border border-zinc-700/50 bg-zinc-900 px-3 py-2">
+                          <p className="mb-1 text-xs text-zinc-400">Liters Dispensed</p>
+                          <p className={`text-lg font-bold ${dispensed > 0 ? "text-emerald-400" : "text-zinc-500"}`}>
+                            {dispensed.toFixed(2)} L
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-zinc-700/50 bg-zinc-900 px-3 py-2">
+                          <p className="mb-1 text-xs text-zinc-400">Nozzle Sale</p>
+                          <p className="text-lg font-bold text-emerald-300">
+                            Rs. {calculateSaleAmount(reading).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   );
@@ -617,21 +828,47 @@ export default function ShiftDutyMeterReadings({
             </section>
           ))}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-zinc-800/50">
+          <div className="grid grid-cols-1 gap-3 border-t border-zinc-800/50 pt-4 sm:grid-cols-3">
+            {sortedFuelTypes.map((fuelType) => {
+              const total = metersByFuelType[fuelType].reduce(
+                (sum, meter) => sum + calculateSaleAmount(readings[meter.id]),
+                0
+              );
+              return (
+                <div key={fuelType} className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+                  <p className="text-xs text-zinc-400">Total {fuelType} Sale</p>
+                  <p className="mt-1 text-lg font-bold text-white">
+                    Rs. {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-3">
             <button
               type="button"
               onClick={handleSaveProgress}
               disabled={isProcessing}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 disabled:bg-zinc-800 disabled:cursor-not-allowed px-4 py-3 font-medium text-zinc-100 text-sm transition-colors"
             >
-              {isProcessing ? "Saving Progress..." : "Save Progress"}
+              {isProcessing ? "Saving..." : "Save"}
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleUpload}
               disabled={isProcessing}
-              className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:cursor-not-allowed px-4 py-3 font-medium text-white text-sm transition-colors"
+              className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
             >
-              {isProcessing ? "Ending Duty & Uploading..." : "End Duty & Upload"}
+              {isProcessing ? "Uploading..." : "Upload"}
+            </button>
+            <button
+              type="button"
+              onClick={handleEndDuty}
+              disabled={isProcessing}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
+            >
+              {isProcessing ? "Processing..." : "End Duty"}
             </button>
           </div>
         </form>

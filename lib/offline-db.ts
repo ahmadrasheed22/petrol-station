@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 
-export type SyncStatus = "pending" | "synced" | "failed";
+export type SyncStatus = "draft" | "pending" | "synced" | "failed";
 
 export interface PendingSale {
   id?: number;

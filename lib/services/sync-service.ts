@@ -228,15 +228,11 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
 
       if (expensesResult.success) {
         const expenseIds = pendingExpenses
-          .map((e) => e.id)
+          .map((expense) => expense.id)
           .filter((id): id is number => id !== undefined);
 
         if (expenseIds.length > 0) {
-          // Strictly update local Dexie status ONLY on success: true
-          await db.pendingExpenses
-            .where("id")
-            .anyOf(expenseIds)
-            .modify({ sync_status: "synced" });
+          await db.pendingExpenses.where("id").anyOf(expenseIds).delete();
         }
         syncedExpensesCount = expensesResult.insertedCount ?? pendingExpenses.length;
       } else {

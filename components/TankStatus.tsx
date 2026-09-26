@@ -72,6 +72,14 @@ const INITIAL_TANKS: Tank[] = [
 
 export default function TankStatus() {
   const [tanks] = useState<Tank[]>(INITIAL_TANKS);
+  const [calculatorTankId, setCalculatorTankId] = useState(INITIAL_TANKS[0].id);
+  const [plannedLiters, setPlannedLiters] = useState("");
+
+  const calculatorTank = tanks.find((tank) => tank.id === calculatorTankId) ?? tanks[0];
+  const plannedChange = Number.parseFloat(plannedLiters) || 0;
+  const projectedLiters = calculatorTank.currentLiters + plannedChange;
+  const projectedUllage = calculatorTank.capacityLiters - projectedLiters;
+  const projectedPercentage = (projectedLiters / calculatorTank.capacityLiters) * 100;
 
   const totalCapacity = tanks.reduce((acc, t) => acc + t.capacityLiters, 0);
   const totalFuel = tanks.reduce((acc, t) => acc + t.currentLiters, 0);
@@ -140,6 +148,54 @@ export default function TankStatus() {
           </div>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-cyan-500/20 bg-zinc-900/70 p-5">
+        <div className="mb-4 border-b border-zinc-800 pb-3">
+          <h3 className="text-base font-semibold text-white">Tank Inventory Calculator</h3>
+          <p className="mt-1 text-xs text-zinc-400">Preview a delivery or withdrawal against current tank levels.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-[1fr_1fr_1.4fr] md:items-end">
+          <div>
+            <label htmlFor="calculator-tank" className="mb-1.5 block text-xs font-medium text-zinc-300">Tank</label>
+            <select
+              id="calculator-tank"
+              value={calculatorTankId}
+              onChange={(event) => setCalculatorTankId(event.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100"
+            >
+              {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name} ({tank.fuelType})</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="planned-liters" className="mb-1.5 block text-xs font-medium text-zinc-300">Planned volume change (L)</label>
+            <input
+              id="planned-liters"
+              type="number"
+              step="0.01"
+              value={plannedLiters}
+              onChange={(event) => setPlannedLiters(event.target.value)}
+              placeholder="Positive delivery, negative withdrawal"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-3 text-center">
+            <div>
+              <p className="text-[11px] text-zinc-500">Projected volume</p>
+              <p className="mt-1 font-mono text-sm font-semibold text-white">{projectedLiters.toLocaleString(undefined, { maximumFractionDigits: 2 })} L</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-zinc-500">Fill level</p>
+              <p className="mt-1 font-mono text-sm font-semibold text-cyan-300">{projectedPercentage.toFixed(1)}%</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-zinc-500">{projectedUllage >= 0 ? "Remaining capacity" : "Over capacity"}</p>
+              <p className={`mt-1 font-mono text-sm font-semibold ${projectedUllage >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                {Math.abs(projectedUllage).toLocaleString(undefined, { maximumFractionDigits: 2 })} L
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Individual Tank Cards */}
       <div className="space-y-4">

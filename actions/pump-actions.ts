@@ -111,6 +111,8 @@ export async function getShiftMeterReadings(
       opening_reading,
       closing_reading,
       liters_dispensed,
+      price_per_liter,
+      total_amount,
       recorded_at,
       created_at,
       machine_meters!inner(meter_number, label, fuel_type),
@@ -146,6 +148,8 @@ export async function getMeterReadingsByDateRange(
       opening_reading,
       closing_reading,
       liters_dispensed,
+      price_per_liter,
+      total_amount,
       recorded_at,
       machine_meters!inner(meter_number, label, fuel_type),
       profiles!inner(name)

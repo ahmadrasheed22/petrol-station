@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useId } from "react";
+import { useState, useId } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
-import { addPendingExpense } from "@/lib/services/offline-service";
+import { addPendingExpense, updatePendingExpense } from "@/lib/services/offline-service";
+import { syncExpensesToCloud, syncShiftsToCloud } from "@/actions/db-actions";
 
 const CATEGORIES = [
   "Machine Maintenance",
@@ -13,22 +14,17 @@ const CATEGORIES = [
 ];
 
 export default function ExpenseForm() {
-  const [mounted, setMounted] = useState(false);
   const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [amountStr, setAmountStr] = useState<string>("");
   const [description, setDescription] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [savedExpenseId, setSavedExpenseId] = useState<number | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const categoryInputId = useId();
   const amountInputId = useId();
   const descriptionInputId = useId();
-
-  // Safeguard against SSR hydration mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Live query for current active shift
   const activeShift = useLiveQuery(
@@ -43,48 +39,49 @@ export default function ExpenseForm() {
   const amount = parseFloat(amountStr) || 0;
   const hasActiveDuty = Boolean(activeShift);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateExpense = () => {
     setSuccessMsg(null);
     setErrorMsg(null);
 
     if (!hasActiveDuty) {
       setErrorMsg("Form locked: You must have an active shift duty to log expenses.");
-      return;
+      return false;
     }
 
     if (amount <= 0) {
       setErrorMsg("Please enter a valid amount (greater than Rs. 0).");
-      return;
+      return false;
     }
 
     if (!category) {
       setErrorMsg("Please select a category.");
-      return;
+      return false;
     }
+
+    return true;
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateExpense()) return;
 
     setIsSubmitting(true);
     try {
-      await addPendingExpense({
+      const expense = {
         shift_id: activeShift?.shift_id,
         amount,
         category,
         description: description.trim() || undefined,
-      });
+      };
 
-      const isOnline = typeof navigator !== "undefined" && navigator.onLine;
-      setSuccessMsg(
-        `Expense of Rs. ${amount.toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })} (${category}) recorded! ${
-          isOnline
-            ? "⚡ Auto-synced to Cloud instantly."
-            : "Saved offline to Dexie (will sync when online)."
-        }`
-      );
-      setAmountStr("");
-      setDescription("");
+      if (savedExpenseId !== null) {
+        await updatePendingExpense(savedExpenseId, expense);
+      } else {
+        const id = await addPendingExpense(expense);
+        setSavedExpenseId(id);
+      }
+
+      setSuccessMsg("Expense draft saved locally. Upload it to send it to the owner.");
     } catch (err: unknown) {
       console.error("Error saving expense to Dexie:", err);
       setErrorMsg("Failed to save expense record locally.");
@@ -93,17 +90,71 @@ export default function ExpenseForm() {
     }
   };
 
-  if (!mounted) {
-    return (
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl animate-pulse">
-        <div className="h-6 w-36 bg-zinc-800 rounded mb-4" />
-        <div className="space-y-4">
-          <div className="h-10 w-full bg-zinc-800/50 rounded-xl" />
-          <div className="h-10 w-full bg-zinc-800/50 rounded-xl" />
-        </div>
-      </div>
-    );
-  }
+  const handleUpload = async () => {
+    if (!validateExpense()) return;
+
+    setIsSubmitting(true);
+    let localExpense: {
+      id?: number;
+      shift_id?: string;
+      amount: number;
+      category: string;
+      description?: string;
+      sync_status: "draft";
+      created_at: string;
+    } | null = null;
+
+    try {
+      const storedExpense = savedExpenseId === null
+        ? undefined
+        : await db.pendingExpenses.get(savedExpenseId);
+      localExpense = {
+        id: storedExpense?.id,
+        shift_id: activeShift?.shift_id,
+        amount,
+        category,
+        description: description.trim() || undefined,
+        sync_status: "draft",
+        created_at: storedExpense?.created_at ?? new Date().toISOString(),
+      };
+
+      if (localExpense.id !== undefined) {
+        await db.pendingExpenses.delete(localExpense.id);
+      }
+
+      const shiftResult = await syncShiftsToCloud([{
+        shift_id: activeShift!.shift_id,
+        user_id: activeShift!.user_id,
+        worker_name: activeShift!.worker_name,
+        start_time: activeShift!.start_time,
+        created_at: activeShift!.created_at,
+      }]);
+      if (!shiftResult.success) throw new Error(shiftResult.error || "Failed to upload duty session.");
+
+      const result = await syncExpensesToCloud([localExpense]);
+      if (!result.success) throw new Error(result.error || "Expense upload failed.");
+
+      setSavedExpenseId(null);
+      setAmountStr("");
+      setDescription("");
+      setSuccessMsg("Expense uploaded. It has been removed from this device.");
+    } catch (err: unknown) {
+      console.error("Error uploading expense:", err);
+      if (localExpense) {
+        const restoredId = await db.pendingExpenses.put(localExpense);
+        setSavedExpenseId(
+          typeof localExpense.id === "number"
+            ? localExpense.id
+            : typeof restoredId === "number"
+            ? restoredId
+            : null
+        );
+      }
+      setErrorMsg(err instanceof Error ? err.message : "Failed to upload expense.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl flex flex-col justify-between space-y-6">
@@ -128,7 +179,7 @@ export default function ExpenseForm() {
             <div>
               <h2 className="text-lg font-bold text-white">Log Expense</h2>
               <p className="text-xs text-zinc-400">
-                Record daily station expenses to Dexie
+                Save expenses locally or upload them to the owner
               </p>
             </div>
           </div>
@@ -186,7 +237,7 @@ export default function ExpenseForm() {
         )}
 
         {/* Form Inputs */}
-        <form id="expense-form" onSubmit={handleSubmit} className="space-y-4">
+        <form id="expense-form" onSubmit={handleSave} className="space-y-4">
           <fieldset disabled={!hasActiveDuty || isSubmitting} className={`space-y-4 transition-opacity ${!hasActiveDuty ? "opacity-50" : ""}`}>
             <div>
               <label
@@ -256,22 +307,24 @@ export default function ExpenseForm() {
       </div>
 
       <div>
-        <button
-          type="submit"
-          form="expense-form"
-          disabled={!hasActiveDuty || isSubmitting}
-          className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
-            !hasActiveDuty
-              ? "bg-zinc-800 text-zinc-400 opacity-50 cursor-not-allowed border border-zinc-700/50"
-              : "bg-amber-600 hover:bg-amber-500 shadow-amber-950/50 cursor-pointer"
-          }`}
-        >
-          {isSubmitting
-            ? "Saving Expense..."
-            : !hasActiveDuty
-            ? "Start a duty to log expenses"
-            : "Log Expense Record (Offline)"}
-        </button>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="submit"
+            form="expense-form"
+            disabled={!hasActiveDuty || isSubmitting}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={handleUpload}
+            disabled={!hasActiveDuty || isSubmitting}
+            className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? "Uploading..." : "Upload"}
+          </button>
+        </div>
       </div>
     </div>
   );
