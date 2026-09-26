@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, PendingExpense, PendingLedgerTransaction } from "@/lib/offline-db";
+import { syncExpensesToCloud, syncShiftsToCloud } from "@/actions/db-actions";
 
 type EntryType = "expense" | "sale";
 
@@ -18,17 +19,20 @@ interface UnifiedEntry {
   category?: string;
   description?: string;
   customerName?: string;
-  syncStatus: "pending" | "synced" | "failed";
+  syncStatus: "draft" | "pending" | "synced" | "failed";
   createdAt: string;
 }
 
-export default function RecentEntries() {
-  const [mounted, setMounted] = useState(false);
-  const [filter, setFilter] = useState<"expense" | "sale">("sale");
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+export default function RecentEntries({
+  initialFilter = "sale",
+  showFilterTabs = true,
+}: {
+  initialFilter?: "expense" | "sale";
+  showFilterTabs?: boolean;
+}) {
+  const [filter, setFilter] = useState<"expense" | "sale">(initialFilter);
+  const [uploadingExpenseIds, setUploadingExpenseIds] = useState<Set<number>>(new Set());
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Reactive Dexie queries
   const expenses = useLiveQuery(
@@ -109,14 +113,48 @@ export default function RecentEntries() {
     return todayEntries.filter((e) => e.type === filter);
   }, [todayEntries, filter]);
 
-  if (!mounted) {
-    return (
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl animate-pulse space-y-4">
-        <div className="h-6 w-52 bg-zinc-800 rounded" />
-        <div className="h-20 w-full bg-zinc-800/40 rounded-xl" />
-      </div>
-    );
-  }
+  const handleExpenseUpload = async (expenseId: number) => {
+    const expense = await db.pendingExpenses.get(expenseId);
+    if (!expense) return;
+
+    setUploadError(null);
+    setUploadingExpenseIds((ids) => new Set(ids).add(expenseId));
+
+    try {
+      await db.pendingExpenses.delete(expenseId);
+      if (expense.shift_id) {
+        const shift = await db.shifts.where("shift_id").equals(expense.shift_id).first();
+        if (shift) {
+          const shiftResult = await syncShiftsToCloud([{
+            shift_id: shift.shift_id,
+            user_id: shift.user_id,
+            worker_name: shift.worker_name,
+            start_time: shift.start_time,
+            created_at: shift.created_at,
+          }]);
+          if (!shiftResult.success) throw new Error(shiftResult.error || "Failed to upload duty session.");
+        }
+      }
+
+      const result = await syncExpensesToCloud([{
+        shift_id: expense.shift_id,
+        amount: expense.amount,
+        category: expense.category,
+        description: expense.description,
+        created_at: expense.created_at,
+      }]);
+      if (!result.success) throw new Error(result.error || "Expense upload failed.");
+    } catch (error) {
+      await db.pendingExpenses.put(expense);
+      setUploadError(error instanceof Error ? error.message : "Failed to upload expense.");
+    } finally {
+      setUploadingExpenseIds((ids) => {
+        const remaining = new Set(ids);
+        remaining.delete(expenseId);
+        return remaining;
+      });
+    }
+  };
 
   const expenseEntries = todayEntries.filter((e) => e.type === "expense");
   const saleEntries = todayEntries.filter((e) => e.type === "sale");
@@ -169,36 +207,38 @@ export default function RecentEntries() {
           <div>
             <h2 className="text-lg font-bold text-white">Recent Entries (Today)</h2>
             <p className="text-xs text-zinc-400">
-              Audit log of today&apos;s fuel sales and expenses (immutable records)
+              Today&apos;s local drafts and uploaded activity
             </p>
           </div>
         </div>
 
         {/* Tab Filters */}
-        <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
-          <button
-            type="button"
-            onClick={() => setFilter("sale")}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-              filter === "sale"
-                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Fuel Sales ({saleEntries.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter("expense")}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-              filter === "expense"
-                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Expenses ({expenseEntries.length})
-          </button>
-        </div>
+        {showFilterTabs && (
+          <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setFilter("sale")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                filter === "sale"
+                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Fuel Sales ({saleEntries.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter("expense")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                filter === "expense"
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Expenses ({expenseEntries.length})
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 sm:p-5">
@@ -216,13 +256,26 @@ export default function RecentEntries() {
         <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center space-y-2">
           <p className="text-sm font-medium text-zinc-400">No {filter === "sale" ? "fuel sales" : "expenses"} logged today</p>
           <p className="text-xs text-zinc-500">
-            Fuel sales and expenses will appear here as they are recorded. Records are permanently locked upon submission.
+            Saved expenses and fuel sales will appear here until uploaded or cleared at duty end.
           </p>
         </div>
       ) : (
         <div className="space-y-2.5">
           {displayedEntries.map((entry) => {
-            const isPending = entry.syncStatus === "pending";
+            const statusLabel =
+              entry.syncStatus === "draft"
+                ? "Draft saved locally"
+                : entry.syncStatus === "pending"
+                ? "Pending Offline"
+                : entry.syncStatus === "failed"
+                ? "Upload failed"
+                : "Synced to Cloud";
+            const statusClass =
+              entry.syncStatus === "synced"
+                ? "text-emerald-400"
+                : entry.syncStatus === "failed"
+                ? "text-rose-400"
+                : "text-amber-400";
             const timeStr = new Date(entry.createdAt).toLocaleTimeString("en-US", {
               hour: "numeric",
               minute: "2-digit",
@@ -267,41 +320,43 @@ export default function RecentEntries() {
                       })}
                     </div>
                     <span
-                      className={`text-[10px] font-medium ${
-                        isPending ? "text-amber-400" : "text-emerald-400"
-                      }`}
+                      className={`text-[10px] font-medium ${statusClass}`}
                     >
-                      {isPending ? "Pending Offline" : "Synced to Cloud"}
+                      {statusLabel}
                     </span>
                   </div>
 
-                  <div className="flex items-center ml-2">
-                    <span
-                      className="inline-flex items-center gap-1 text-[11px] text-zinc-400 px-2.5 py-1 bg-zinc-900/90 rounded-lg border border-zinc-800"
-                      title="Submitted record is locked against alteration or deletion"
+                  {entry.type === "expense" && entry.syncStatus === "draft" ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleExpenseUpload(entry.originalId)}
+                      disabled={uploadingExpenseIds.has(entry.originalId)}
+                      className="ml-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
                     >
-                      <svg
-                        className="h-3 w-3 text-zinc-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                      {uploadingExpenseIds.has(entry.originalId) ? "Uploading..." : "Upload"}
+                    </button>
+                  ) : entry.syncStatus === "draft" ? (
+                    <span className="ml-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300">Draft</span>
+                  ) : (
+                    <div className="ml-2 flex items-center">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/90 px-2.5 py-1 text-[11px] text-zinc-400"
+                        title="Submitted record is locked against alteration or deletion"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                        />
-                      </svg>
-                      <span>Locked</span>
-                    </span>
-                  </div>
+                        <svg className="h-3 w-3 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        <span>Locked</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+      {uploadError && <p className="text-xs text-rose-400" role="alert">{uploadError}</p>}
     </section>
   );
 }

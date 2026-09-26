@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import MeterReadingsHistory from "@/components/MeterReadingsHistory";
 import { type OverviewStats } from "@/actions/admin-actions";
 import { useRealtimeSync, type RealtimePayloadInfo } from "@/lib/hooks/useRealtimeSync";
 
@@ -451,6 +452,7 @@ export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProp
           </div>
         )}
       </div>
+      <MeterReadingsHistory limit={20} />
     </div>
   );
 }

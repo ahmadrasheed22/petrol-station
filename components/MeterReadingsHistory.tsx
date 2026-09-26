@@ -10,6 +10,8 @@ interface MeterReadingRecord {
   opening_reading: number;
   closing_reading: number;
   liters_dispensed: number;
+  price_per_liter: number;
+  total_amount: number;
   recorded_at: string;
   created_at: string;
   machine_meters: {
@@ -243,7 +245,7 @@ export default function MeterReadingsHistory({
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3 text-sm">
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
                       <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
                         <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Opening</span>
                         <div className="font-mono text-lg font-semibold text-zinc-100">
@@ -257,8 +259,16 @@ export default function MeterReadingsHistory({
                         </div>
                       </div>
                       <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Audit Time</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">{time}</div>
+                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Price / Liter</span>
+                        <div className="font-mono text-lg font-semibold text-zinc-100">
+                          Rs. {Number(reading.price_per_liter || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
+                        <span className="text-emerald-300/80 text-[11px] uppercase tracking-[0.18em]">Total Amount</span>
+                        <div className="font-mono text-xl font-bold text-emerald-300">
+                          Rs. {Number(reading.total_amount || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })}
+                        </div>
                       </div>
                     </div>
                   </article>
