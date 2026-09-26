@@ -2,6 +2,8 @@ import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import ShiftDutyManager from "@/components/ShiftDutyManager";
+import ShiftDutyMeterReadings from "@/components/ShiftDutyMeterReadings";
+import MeterReadingsHistory from "@/components/MeterReadingsHistory";
 import ExpenseForm from "@/components/ExpenseForm";
 import DashboardStats from "@/components/DashboardStats";
 import RecentEntries from "@/components/RecentEntries";
@@ -167,6 +169,18 @@ export default async function DashboardPage({
             userRole={profile.role}
           />
           <ExpenseForm />
+        </div>
+
+        {/* Shift Duty Meter Readings */}
+        <ShiftDutyMeterReadings
+          userId={user.id}
+          workerName={profile.name}
+        />
+
+        {/* Recent Meter Readings History */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <MeterReadingsHistory userId={user.id} limit={5} />
+          <MeterReadingsHistory limit={5} />
         </div>
 
         {/* Recent Entries: Today's Logged Expenses & Credit Sales (Fraud-Protected & Immutable) */}

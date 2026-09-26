@@ -91,3 +91,97 @@ export async function deleteMachineMeter(id: string) {
   revalidatePath("/admin/pump-config");
   return { success: true };
 }
+
+/**
+ * Fetch shift meter readings with joined meter and worker data
+ */
+export async function getShiftMeterReadings(
+  workerId?: string,
+  limit: number = 100,
+  offset: number = 0
+) {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("shift_meter_readings")
+    .select(`
+      id,
+      meter_id,
+      worker_id,
+      opening_reading,
+      closing_reading,
+      liters_dispensed,
+      recorded_at,
+      created_at,
+      machine_meters!inner(meter_number, label, fuel_type),
+      profiles!inner(name)
+    `)
+    .order("recorded_at", { ascending: false });
+
+  if (workerId) {
+    query = query.eq("worker_id", workerId);
+  }
+
+  const { data, error } = await query.range(offset, offset + limit - 1);
+
+  if (error) return { success: false, error: error.message, data: [] };
+  return { success: true, data: data || [] };
+}
+
+/**
+ * Fetch meter readings for a specific date range
+ */
+export async function getMeterReadingsByDateRange(
+  startDate: string,
+  endDate: string
+) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("shift_meter_readings")
+    .select(`
+      id,
+      meter_id,
+      worker_id,
+      opening_reading,
+      closing_reading,
+      liters_dispensed,
+      recorded_at,
+      machine_meters!inner(meter_number, label, fuel_type),
+      profiles!inner(name)
+    `)
+    .gte("recorded_at", startDate)
+    .lte("recorded_at", endDate)
+    .order("recorded_at", { ascending: false });
+
+  if (error) return { success: false, error: error.message, data: [] };
+  return { success: true, data: data || [] };
+}
+
+/**
+ * Fetch summary stats for meter readings
+ */
+export async function getMeterReadingStats(workerId?: string) {
+  const supabase = await createClient();
+
+  let query = supabase.from("shift_meter_readings").select("liters_dispensed");
+
+  if (workerId) {
+    query = query.eq("worker_id", workerId);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) {
+    return { success: false, error: error?.message, totalLiters: 0, recordCount: 0 };
+  }
+
+  const totalLiters = data.reduce((sum, record) => sum + (record.liters_dispensed || 0), 0);
+
+  return {
+    success: true,
+    totalLiters: parseFloat(totalLiters.toFixed(2)),
+    recordCount: data.length,
+  };
+}
+
