@@ -3,7 +3,6 @@ import {
   ShiftRecord,
   PendingSale,
   CustomerRecord,
-  PendingLedgerTransaction,
   PendingInventory,
 } from "@/lib/offline-db";
 import { triggerAutoSyncIfOnline } from "@/lib/services/sync-service";
@@ -29,6 +28,7 @@ export async function startShift(
     product_name?: string;
     price_per_liter?: number;
     opening_meter?: number;
+    deferSync?: boolean;
   }
 ): Promise<ShiftRecord> {
   const now = new Date().toISOString();
@@ -64,12 +64,12 @@ export async function startShift(
     shortage_amount: 0,
     start_time: now,
     status: "active",
-    sync_status: "pending",
+    sync_status: options?.deferSync ? "draft" : "pending",
     created_at: now,
   };
 
   const id = await db.shifts.add(shiftData as ShiftRecord);
-  triggerAutoSyncIfOnline();
+  if (!options?.deferSync) triggerAutoSyncIfOnline();
   return { id: id as number, ...shiftData };
 }
 
@@ -182,10 +182,9 @@ export async function addPendingSale(saleData: {
     price_per_liter: price,
     applied_sp: price,
     applied_cp: saleData.applied_cp ?? price,
-    sync_status: "pending",
+    sync_status: "draft",
     created_at: now,
   });
-  triggerAutoSyncIfOnline();
   return id as number;
 }
 
@@ -238,6 +237,7 @@ export async function updatePendingExpense(
     amount: data.amount,
     category: data.category,
     description: data.description,
+    sync_status: "draft",
   });
 }
 
