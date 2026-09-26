@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { getPumpConfig } from "@/actions/pump-actions";
+import { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { getPumpConfig, getShiftMeterReadings } from "@/actions/pump-actions";
 import { createClient } from "@/lib/supabase/client";
+import { db, type ShiftRecord } from "@/lib/offline-db";
+import { endShift, startShift } from "@/lib/services/offline-service";
 
 interface Machine {
   id: string;
@@ -35,6 +38,10 @@ interface ShiftDutyMeterReadingsProps {
   workerName: string;
 }
 
+const fuelTypeOrder = ["Petrol", "Diesel", "Hi-Octane"];
+
+const formatReading = (value: number) => value.toFixed(2);
+
 export default function ShiftDutyMeterReadings({
   userId,
   workerName,
@@ -45,40 +52,66 @@ export default function ShiftDutyMeterReadings({
   const [meters, setMeters] = useState<Meter[]>([]);
   const [readings, setReadings] = useState<Record<string, MeterReading>>({});
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingShift, setPendingShift] = useState<ShiftRecord | null>(null);
+
+  const liveActiveShift = useLiveQuery(
+    async () => {
+      if (typeof window === "undefined") return null;
+      return await db.shifts.where("status").equals("active").first();
+    },
+    [],
+    null
+  );
+
+  const activeShift = liveActiveShift ?? pendingShift;
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Fetch pump configuration
   useEffect(() => {
     if (!mounted) return;
 
     async function loadPumpConfig() {
       setLoading(true);
       try {
-        const config = await getPumpConfig();
-        
-        // Filter active machines and meters
-        const activeMachines = config.machines.filter((m: Machine) => m.status === "active");
-        const activeMeters = config.meters.filter((m: Meter) => m.status === "active");
+        const [config, recentReadings] = await Promise.all([
+          getPumpConfig(),
+          getShiftMeterReadings(undefined, 500),
+        ]);
+
+        const activeMachines = config.machines.filter((machine: Machine) => machine.status === "active");
+        const activeMeters = config.meters.filter((meter: Meter) => meter.status === "active");
+        const latestClosingByMeter: Record<string, string> = {};
+
+        if (recentReadings.success) {
+          for (const record of recentReadings.data as Array<{ meter_id: string; closing_reading: number }>) {
+            if (!latestClosingByMeter[record.meter_id]) {
+              latestClosingByMeter[record.meter_id] = formatReading(record.closing_reading);
+            }
+          }
+        }
 
         setMachines(activeMachines);
         setMeters(activeMeters);
 
-        // Initialize readings object with empty strings
         const initialReadings: Record<string, MeterReading> = {};
         activeMeters.forEach((meter: Meter) => {
-          const machine = activeMachines.find((m: Machine) => m.id === meter.machine_id);
+          const machine = activeMachines.find((item: Machine) => item.id === meter.machine_id);
+          const openingReading =
+            latestClosingByMeter[meter.id] ??
+            formatReading(meter.current_reading ?? meter.initial_reading ?? 0);
+
           initialReadings[meter.id] = {
             meterId: meter.id,
             meterLabel: meter.label || meter.meter_number,
             machineNumber: machine?.machine_number || "Unknown",
-            openingReading: "",
+            openingReading,
             closingReading: "",
           };
         });
+
         setReadings(initialReadings);
       } catch (err) {
         console.error("Failed to load pump config:", err);
@@ -91,7 +124,6 @@ export default function ShiftDutyMeterReadings({
     loadPumpConfig();
   }, [mounted]);
 
-  // Group meters by fuel type
   const metersByFuelType = useMemo(() => {
     const grouped: Record<string, Meter[]> = {};
 
@@ -105,18 +137,18 @@ export default function ShiftDutyMeterReadings({
     return grouped;
   }, [meters]);
 
-  // Handle opening reading change
-  const handleOpeningChange = (meterId: string, value: string) => {
-    setReadings((prev) => ({
-      ...prev,
-      [meterId]: {
-        ...prev[meterId],
-        openingReading: value,
-      },
-    }));
+  const sortedFuelTypes = useMemo(() => {
+    const ordered = fuelTypeOrder.filter((fuelType) => metersByFuelType[fuelType]);
+    const remaining = Object.keys(metersByFuelType).filter((fuelType) => !fuelTypeOrder.includes(fuelType));
+    return [...ordered, ...remaining];
+  }, [metersByFuelType]);
+
+  const calculateDispensed = (opening: string, closing: string): number => {
+    const o = parseFloat(opening) || 0;
+    const c = parseFloat(closing) || 0;
+    return Math.max(0, c - o);
   };
 
-  // Handle closing reading change
   const handleClosingChange = (meterId: string, value: string) => {
     setReadings((prev) => ({
       ...prev,
@@ -127,89 +159,137 @@ export default function ShiftDutyMeterReadings({
     }));
   };
 
-  // Calculate liters dispensed
-  const calculateDispensed = (opening: string, closing: string): number => {
-    const o = parseFloat(opening) || 0;
-    const c = parseFloat(closing) || 0;
-    return Math.max(0, c - o);
+  const hydrateOpeningReadings = () => {
+    setReadings((prev) => {
+      const nextReadings: Record<string, MeterReading> = {};
+
+      meters.forEach((meter) => {
+        const existingReading = prev[meter.id];
+        nextReadings[meter.id] = {
+          meterId: meter.id,
+          meterLabel: meter.label || meter.meter_number,
+          machineNumber:
+            existingReading?.machineNumber ||
+            machines.find((machine) => machine.id === meter.machine_id)?.machine_number ||
+            "Unknown",
+          openingReading: existingReading?.openingReading || formatReading(meter.current_reading ?? meter.initial_reading ?? 0),
+          closingReading: "",
+        };
+      });
+
+      return nextReadings;
+    });
   };
 
-  // Handle form submission
+  const handleStartDuty = async () => {
+    setMessage(null);
+
+    if (activeShift) {
+      setMessage({ type: "error", text: "A shift is already active." });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const newShift = await startShift(userId, { worker_name: workerName });
+      setPendingShift(newShift);
+      hydrateOpeningReadings();
+      setMessage({
+        type: "success",
+        text: `Duty started at ${new Date(newShift.start_time).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}. Meter inputs are now unlocked.`,
+      });
+    } catch (err) {
+      console.error("Failed to start duty:", err);
+      setMessage({ type: "error", text: "Failed to start duty. Please try again." });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
 
-    // Validation: at least one meter must have readings
-    const hasValidReadings = Object.values(readings).some(
-      (r) => r.openingReading.trim() && r.closingReading.trim()
-    );
+    if (!activeShift) {
+      setMessage({ type: "error", text: "Start duty before entering meter readings." });
+      return;
+    }
 
-    if (!hasValidReadings) {
+    if (meters.length === 0) {
+      setMessage({ type: "error", text: "No active meters are configured." });
+      return;
+    }
+
+    const hasMissingClosing = meters.some((meter) => !readings[meter.id]?.closingReading.trim());
+    if (hasMissingClosing) {
       setMessage({
         type: "error",
-        text: "Please enter at least one meter reading (opening and closing).",
+        text: "Enter closing readings for every active meter before ending duty.",
       });
       return;
     }
 
-    // Validation: closing must be >= opening for all entries
-    const hasInvalidReadings = Object.values(readings).some((r) => {
-      if (!r.openingReading.trim() || !r.closingReading.trim()) return false;
-      const opening = parseFloat(r.openingReading);
-      const closing = parseFloat(r.closingReading);
-      return closing < opening;
+    const hasInvalidReadings = meters.some((meter) => {
+      const reading = readings[meter.id];
+      const opening = parseFloat(reading.openingReading);
+      const closing = parseFloat(reading.closingReading);
+      return Number.isNaN(opening) || Number.isNaN(closing) || closing < opening;
     });
 
     if (hasInvalidReadings) {
       setMessage({
         type: "error",
-        text: "Closing meter reading cannot be less than opening reading.",
+        text: "Each closing reading must be greater than or equal to its opening reading.",
       });
       return;
     }
 
-    setIsSubmitting(true);
+    setIsProcessing(true);
     try {
       const supabase = createClient();
+      const recordedAt = new Date().toISOString();
 
-      // Prepare shift record with all meter readings
-      const meterReadingsData = Object.values(readings)
-        .filter((r) => r.openingReading.trim() && r.closingReading.trim())
-        .map((r) => ({
-          meter_id: r.meterId,
+      const meterReadingsData = meters.map((meter) => {
+        const reading = readings[meter.id];
+        return {
+          meter_id: meter.id,
           worker_id: userId,
-          opening_reading: parseFloat(r.openingReading),
-          closing_reading: parseFloat(r.closingReading),
-          liters_dispensed: calculateDispensed(r.openingReading, r.closingReading),
-          recorded_at: new Date().toISOString(),
-        }));
+          opening_reading: parseFloat(reading.openingReading),
+          closing_reading: parseFloat(reading.closingReading),
+          liters_dispensed: calculateDispensed(reading.openingReading, reading.closingReading),
+          recorded_at: recordedAt,
+        };
+      });
 
-      // Insert into shift_meter_readings table
-      const { error } = await supabase
-        .from("shift_meter_readings")
-        .insert(meterReadingsData);
-
+      const { error } = await supabase.from("shift_meter_readings").insert(meterReadingsData);
       if (error) {
         throw new Error(error.message);
       }
 
-      // Reset form
-      const resetReadings: Record<string, MeterReading> = {};
-      meters.forEach((meter) => {
-        const machine = machines.find((m) => m.id === meter.machine_id);
-        resetReadings[meter.id] = {
-          meterId: meter.id,
-          meterLabel: meter.label || meter.meter_number,
-          machineNumber: machine?.machine_number || "Unknown",
-          openingReading: "",
-          closingReading: "",
-        };
+      await endShift(activeShift.id);
+      setPendingShift(null);
+
+      setReadings((prev) => {
+        const nextReadings: Record<string, MeterReading> = {};
+
+        meters.forEach((meter) => {
+          const reading = prev[meter.id];
+          nextReadings[meter.id] = {
+            ...reading,
+            openingReading: reading.closingReading || reading.openingReading,
+            closingReading: "",
+          };
+        });
+
+        return nextReadings;
       });
-      setReadings(resetReadings);
 
       setMessage({
         type: "success",
-        text: `Meter readings recorded successfully for ${meterReadingsData.length} meter(s)!`,
+        text: `Readings saved and duty ended for ${workerName}.`,
       });
     } catch (err) {
       console.error("Failed to save meter readings:", err);
@@ -218,7 +298,7 @@ export default function ShiftDutyMeterReadings({
         text: err instanceof Error ? err.message : "Failed to save meter readings.",
       });
     } finally {
-      setIsSubmitting(false);
+      setIsProcessing(false);
     }
   };
 
@@ -248,13 +328,9 @@ export default function ShiftDutyMeterReadings({
     );
   }
 
-  const fuelTypeOrder = ["Petrol", "Diesel", "Hi-Octane"];
-  const sortedFuelTypes = fuelTypeOrder.filter((ft) => metersByFuelType[ft]);
-
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4 mb-6">
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl space-y-6">
+      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -267,16 +343,31 @@ export default function ShiftDutyMeterReadings({
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-bold text-white tracking-tight">Meter Readings</h2>
-            <p className="text-xs text-zinc-400">Record opening & closing readings for each nozzle</p>
+            <h2 className="text-lg font-bold text-white tracking-tight">Duty Meter Readings</h2>
+            <p className="text-xs text-zinc-400">
+              Start duty first, then record opening and closing readings for every active meter.
+            </p>
           </div>
+        </div>
+
+        <div>
+          {activeShift ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              Duty Active
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-800 border border-zinc-700 px-3 py-1 text-xs font-medium text-zinc-400">
+              <span className="h-2 w-2 rounded-full bg-zinc-500" />
+              Duty Locked
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Message Banner */}
       {message && (
         <div
-          className={`mb-6 rounded-xl border p-3 text-xs flex items-center justify-between ${
+          className={`rounded-xl border p-3 text-xs flex items-center justify-between ${
             message.type === "success"
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
               : "bg-rose-500/10 border-rose-500/30 text-rose-400"
@@ -286,127 +377,164 @@ export default function ShiftDutyMeterReadings({
           <button
             type="button"
             onClick={() => setMessage(null)}
-            className="text-sm font-bold ml-2 cursor-pointer hover:opacity-75"
+            className="ml-2 text-sm font-bold cursor-pointer hover:opacity-75"
           >
             &times;
           </button>
         </div>
       )}
 
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Fuel Type Sections */}
-        {sortedFuelTypes.map((fuelType) => (
-          <div key={fuelType} className="space-y-4">
-            {/* Fuel Type Header Card */}
-            <div
-              className={`rounded-lg border px-4 py-3 ${
-                fuelType === "Petrol"
-                  ? "border-amber-500/30 bg-amber-500/5"
-                  : fuelType === "Diesel"
-                  ? "border-red-500/30 bg-red-500/5"
-                  : "border-cyan-500/30 bg-cyan-500/5"
-              }`}
-            >
-              <h3
-                className={`font-semibold text-sm ${
-                  fuelType === "Petrol"
-                    ? "text-amber-400"
-                    : fuelType === "Diesel"
-                    ? "text-red-400"
-                    : "text-cyan-400"
-                }`}
-              >
-                {fuelType}
-              </h3>
-            </div>
-
-            {/* Meters Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-2">
-              {metersByFuelType[fuelType].map((meter) => {
-                const reading = readings[meter.id];
-                const opening = parseFloat(reading?.openingReading || "0") || 0;
-                const closing = parseFloat(reading?.closingReading || "0") || 0;
-                const dispensed = calculateDispensed(
-                  reading?.openingReading || "0",
-                  reading?.closingReading || "0"
-                );
-
-                return (
-                  <div
-                    key={meter.id}
-                    className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4 space-y-3"
-                  >
-                    {/* Meter Label */}
-                    <div>
-                      <p className="text-xs text-zinc-400 font-medium">
-                        {reading.meterLabel} ({reading.machineNumber})
-                      </p>
-                    </div>
-
-                    {/* Opening Reading */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                        Opening Reading
-                      </label>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        min="0"
-                        value={reading?.openingReading || ""}
-                        onChange={(e) => handleOpeningChange(meter.id, e.target.value)}
-                        placeholder="e.g., 1234.50"
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-                      />
-                    </div>
-
-                    {/* Closing Reading */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                        Closing Reading
-                      </label>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        min="0"
-                        value={reading?.closingReading || ""}
-                        onChange={(e) => handleClosingChange(meter.id, e.target.value)}
-                        placeholder="e.g., 1450.75"
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-                      />
-                    </div>
-
-                    {/* Auto-calculated Dispensed Amount */}
-                    <div className="rounded-lg bg-zinc-900 px-3 py-2 border border-zinc-700/50">
-                      <p className="text-xs text-zinc-400 mb-1">Liters Dispensed</p>
-                      <p
-                        className={`text-lg font-bold ${
-                          dispensed > 0 ? "text-emerald-400" : "text-zinc-500"
-                        }`}
-                      >
-                        {dispensed.toFixed(2)} L
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {!activeShift ? (
+        <div className="space-y-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+          <div className="space-y-2">
+            <h3 className="text-base font-semibold text-white">You must start a shift to enter meter readings.</h3>
+            <p className="text-sm text-zinc-400">
+              Meter inputs stay locked until duty is officially started and the worker session time is recorded.
+            </p>
           </div>
-        ))}
-
-        {/* Submit Button */}
-        <div className="flex gap-3 pt-4 border-t border-zinc-800/50">
           <button
-            type="submit"
-            disabled={isSubmitting}
-            className="flex-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:cursor-not-allowed px-4 py-2.5 font-medium text-white text-sm transition-colors"
+            type="button"
+            onClick={handleStartDuty}
+            disabled={isProcessing}
+            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 cursor-pointer"
           >
-            {isSubmitting ? "Saving..." : "Save All Readings"}
+            {isProcessing ? "Starting Duty..." : "Start Duty"}
           </button>
         </div>
-      </form>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-emerald-400">Active Duty Session</p>
+                <h3 className="text-lg font-semibold text-white">{workerName}</h3>
+                <p className="text-xs text-zinc-400">
+                  Started {new Date(activeShift.start_time).toLocaleString([], {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </p>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-xs text-zinc-400">
+                <div>
+                  <span className="text-zinc-500">Shift ID:</span> <span className="font-mono text-zinc-200">{activeShift.shift_id}</span>
+                </div>
+                <div className="mt-1">
+                  <span className="text-zinc-500">Unlock State:</span> <span className="text-emerald-400 font-semibold">Meter entry enabled</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {sortedFuelTypes.map((fuelType) => (
+            <section key={fuelType} className="space-y-4">
+              <div
+                className={`rounded-lg border px-4 py-3 ${
+                  fuelType === "Petrol"
+                    ? "border-amber-500/30 bg-amber-500/5"
+                    : fuelType === "Diesel"
+                    ? "border-red-500/30 bg-red-500/5"
+                    : "border-cyan-500/30 bg-cyan-500/5"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <h3
+                    className={`font-semibold text-sm ${
+                      fuelType === "Petrol"
+                        ? "text-amber-400"
+                        : fuelType === "Diesel"
+                        ? "text-red-400"
+                        : "text-cyan-400"
+                    }`}
+                  >
+                    {fuelType}
+                  </h3>
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-400">
+                    {metersByFuelType[fuelType].length} meter(s)
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-2">
+                {metersByFuelType[fuelType].map((meter) => {
+                  const reading = readings[meter.id];
+                  const opening = reading?.openingReading || "0.00";
+                  const closing = reading?.closingReading || "";
+                  const dispensed = calculateDispensed(opening, closing);
+
+                  return (
+                    <div key={meter.id} className="rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-4 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs text-zinc-400 uppercase tracking-[0.18em]">Meter</p>
+                          <p className="text-base font-semibold text-white">
+                            {reading?.meterLabel} <span className="text-zinc-500">({reading?.machineNumber})</span>
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
+                          {meter.fuel_type}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                            Opening Reading
+                          </label>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={reading?.openingReading || ""}
+                            readOnly
+                            disabled
+                            className="w-full rounded-lg border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 opacity-80 cursor-not-allowed focus:outline-none"
+                          />
+                          <p className="mt-1 text-[11px] text-zinc-500">Locked from the last recorded closing reading.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                            Closing Reading
+                          </label>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={reading?.closingReading || ""}
+                            onChange={(e) => handleClosingChange(meter.id, e.target.value)}
+                            placeholder="e.g., 1450.75"
+                            className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-zinc-900 px-3 py-2 border border-zinc-700/50">
+                        <p className="text-xs text-zinc-400 mb-1">Liters Dispensed</p>
+                        <p className={`text-lg font-bold ${dispensed > 0 ? "text-emerald-400" : "text-zinc-500"}`}>
+                          {dispensed.toFixed(2)} L
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+
+          <div className="flex gap-3 pt-4 border-t border-zinc-800/50">
+            <button
+              type="submit"
+              disabled={isProcessing}
+              className="flex-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:cursor-not-allowed px-4 py-3 font-medium text-white text-sm transition-colors"
+            >
+              {isProcessing ? "Saving & Ending Duty..." : "Save Readings & End Duty"}
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
-import ShiftDutyManager from "@/components/ShiftDutyManager";
 import ShiftDutyMeterReadings from "@/components/ShiftDutyMeterReadings";
 import MeterReadingsHistory from "@/components/MeterReadingsHistory";
 import ExpenseForm from "@/components/ExpenseForm";
@@ -161,13 +160,8 @@ export default async function DashboardPage({
         {/* Real-time Dexie Dashboard Stats */}
         <DashboardStats />
 
-        {/* Pump Operations & Expense Logging Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <ShiftDutyManager
-            userId={user.id}
-            workerName={profile.name}
-            userRole={profile.role}
-          />
+        {/* Expense Logging */}
+        <div className="grid grid-cols-1 gap-6 items-start">
           <ExpenseForm />
         </div>
 
