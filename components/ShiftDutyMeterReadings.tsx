@@ -33,6 +33,15 @@ interface MeterReading {
   closingReading: string;
 }
 
+interface ShiftMeterDraft {
+  openingReading: string;
+  closingReading: string;
+}
+
+interface ShiftRecordWithMeterDraft extends ShiftRecord {
+  meter_readings_draft?: Record<string, ShiftMeterDraft>;
+}
+
 interface ShiftDutyMeterReadingsProps {
   userId: string;
   workerName: string;
@@ -112,7 +121,7 @@ export default function ShiftDutyMeterReadings({
           };
         });
 
-        setReadings(initialReadings);
+        setReadings(applyDraftIfAvailable(initialReadings));
       } catch (err) {
         console.error("Failed to load pump config:", err);
         setMessage({ type: "error", text: "Failed to load meter configuration." });
@@ -149,6 +158,50 @@ export default function ShiftDutyMeterReadings({
     return Math.max(0, c - o);
   };
 
+  const buildMeterDraft = (): Record<string, ShiftMeterDraft> => {
+    const draft: Record<string, ShiftMeterDraft> = {};
+
+    meters.forEach((meter) => {
+      const reading = readings[meter.id];
+      draft[meter.id] = {
+        openingReading: reading?.openingReading || "",
+        closingReading: reading?.closingReading || "",
+      };
+    });
+
+    return draft;
+  };
+
+  const applyDraftIfAvailable = (
+    baseReadings: Record<string, MeterReading>
+  ): Record<string, MeterReading> => {
+    const draft = (activeShift as ShiftRecordWithMeterDraft | null)?.meter_readings_draft;
+    if (!draft) return baseReadings;
+
+    const mergedReadings: Record<string, MeterReading> = { ...baseReadings };
+
+    Object.entries(draft).forEach(([meterId, meterDraft]) => {
+      if (!mergedReadings[meterId]) return;
+      mergedReadings[meterId] = {
+        ...mergedReadings[meterId],
+        openingReading: meterDraft.openingReading ?? mergedReadings[meterId].openingReading,
+        closingReading: meterDraft.closingReading ?? mergedReadings[meterId].closingReading,
+      };
+    });
+
+    return mergedReadings;
+  };
+
+  const handleOpeningChange = (meterId: string, value: string) => {
+    setReadings((prev) => ({
+      ...prev,
+      [meterId]: {
+        ...prev[meterId],
+        openingReading: value,
+      },
+    }));
+  };
+
   const handleClosingChange = (meterId: string, value: string) => {
     setReadings((prev) => ({
       ...prev,
@@ -157,6 +210,33 @@ export default function ShiftDutyMeterReadings({
         closingReading: value,
       },
     }));
+  };
+
+  const handleSaveProgress = async () => {
+    if (!activeShift?.id) {
+      setMessage({ type: "error", text: "Start duty before saving progress." });
+      return;
+    }
+
+    setMessage(null);
+    setIsProcessing(true);
+    try {
+      await db.shifts.update(activeShift.id, {
+        meter_readings_draft: buildMeterDraft(),
+        status: "active",
+        sync_status: "pending",
+      } as Partial<ShiftRecordWithMeterDraft>);
+
+      setMessage({
+        type: "success",
+        text: "Progress saved locally. Duty is still active.",
+      });
+    } catch (err) {
+      console.error("Failed to save meter-reading progress:", err);
+      setMessage({ type: "error", text: "Failed to save progress locally." });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const hydrateOpeningReadings = () => {
@@ -270,6 +350,9 @@ export default function ShiftDutyMeterReadings({
       }
 
       await endShift(activeShift.id);
+      await db.shifts.update(activeShift.id, {
+        meter_readings_draft: undefined,
+      } as Partial<ShiftRecordWithMeterDraft>);
       setPendingShift(null);
 
       setReadings((prev) => {
@@ -287,10 +370,7 @@ export default function ShiftDutyMeterReadings({
         return nextReadings;
       });
 
-      setMessage({
-        type: "success",
-        text: `Readings saved and duty ended for ${workerName}.`,
-      });
+      setMessage({ type: "success", text: `Duty ended and uploaded for ${workerName}.` });
     } catch (err) {
       console.error("Failed to save meter readings:", err);
       setMessage({
@@ -487,11 +567,10 @@ export default function ShiftDutyMeterReadings({
                             step="0.01"
                             min="0"
                             value={reading?.openingReading || ""}
-                            readOnly
-                            disabled
-                            className="w-full rounded-lg border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 opacity-80 cursor-not-allowed focus:outline-none"
+                            onChange={(e) => handleOpeningChange(meter.id, e.target.value)}
+                            className="w-full rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
                           />
-                          <p className="mt-1 text-[11px] text-zinc-500">Locked from the last recorded closing reading.</p>
+                          <p className="mt-1 text-[11px] text-zinc-500">Auto-filled from last closing reading, but editable if physical meter differs.</p>
                         </div>
 
                         <div>
@@ -524,13 +603,21 @@ export default function ShiftDutyMeterReadings({
             </section>
           ))}
 
-          <div className="flex gap-3 pt-4 border-t border-zinc-800/50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-zinc-800/50">
+            <button
+              type="button"
+              onClick={handleSaveProgress}
+              disabled={isProcessing}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 disabled:bg-zinc-800 disabled:cursor-not-allowed px-4 py-3 font-medium text-zinc-100 text-sm transition-colors"
+            >
+              {isProcessing ? "Saving Progress..." : "Save Progress"}
+            </button>
             <button
               type="submit"
               disabled={isProcessing}
-              className="flex-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:cursor-not-allowed px-4 py-3 font-medium text-white text-sm transition-colors"
+              className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:cursor-not-allowed px-4 py-3 font-medium text-white text-sm transition-colors"
             >
-              {isProcessing ? "Saving & Ending Duty..." : "Save Readings & End Duty"}
+              {isProcessing ? "Ending Duty & Uploading..." : "End Duty & Upload"}
             </button>
           </div>
         </form>
