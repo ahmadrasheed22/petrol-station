@@ -114,7 +114,7 @@ export async function getShiftMeterReadings(
       recorded_at,
       created_at,
       machine_meters!inner(meter_number, label, fuel_type),
-      profiles!inner(name, phone)
+      profiles!inner(name)
     `)
     .order("recorded_at", { ascending: false });
 
