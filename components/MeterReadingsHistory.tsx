@@ -19,7 +19,6 @@ interface MeterReadingRecord {
   };
   profiles: {
     name: string;
-    phone: string;
   };
 }
 

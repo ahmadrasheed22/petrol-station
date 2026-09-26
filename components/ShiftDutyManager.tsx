@@ -3,7 +3,7 @@
 import { useState, useEffect, useId, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, ShiftRecord } from "@/lib/offline-db";
-import { startShift, endShift } from "@/lib/services/offline-service";
+import { startShift, endShift, saveShiftProgress } from "@/lib/services/offline-service";
 import { createClient } from "@/lib/supabase/client";
 
 interface Product {
@@ -108,6 +108,26 @@ export default function ShiftDutyManager({
 
     loadProducts();
   }, []);
+
+  useEffect(() => {
+    if (!activeShift?.id) return;
+
+    setClosingMeterStr(
+      activeShift.closing_meter !== undefined && activeShift.closing_meter !== null
+        ? String(activeShift.closing_meter)
+        : ""
+    );
+    setTestingLitersStr(
+      activeShift.testing_liters !== undefined && activeShift.testing_liters !== null
+        ? String(activeShift.testing_liters)
+        : "0"
+    );
+    setActualCashStr(
+      activeShift.actual_cash !== undefined && activeShift.actual_cash !== null
+        ? String(activeShift.actual_cash)
+        : ""
+    );
+  }, [activeShift?.id]);
 
   // When changing product in Start Duty, update default price
   const handleProductChange = (prodId: string) => {
@@ -262,7 +282,7 @@ export default function ShiftDutyManager({
 
       setActionMessage({
         type: "success",
-        text: `Duty completed & saved to Dexie! Sold: ${calculations.totalLitersSold.toFixed(2)}L | ${reconciliationText}`,
+        text: `Duty ended and queued for upload. Sold: ${calculations.totalLitersSold.toFixed(2)}L | ${reconciliationText}`,
       });
 
       // Reset end duty inputs
@@ -272,6 +292,62 @@ export default function ShiftDutyManager({
     } catch (err) {
       console.error("Failed to end duty in Dexie:", err);
       setActionMessage({ type: "error", text: "Failed to save completed duty to local database." });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveProgress = async () => {
+    if (!activeShift?.id) return;
+    setActionMessage(null);
+
+    const hasClosingInput = closingMeterStr.trim().length > 0;
+    const hasTestingInput = testingLitersStr.trim().length > 0;
+    const hasCashInput = actualCashStr.trim().length > 0;
+
+    if (hasClosingInput && (!calculations.isClosingValid || closingMeter < activeOpeningMeter)) {
+      setActionMessage({
+        type: "error",
+        text: `Closing meter (${closingMeter}) cannot be less than opening meter (${activeOpeningMeter}).`,
+      });
+      return;
+    }
+
+    if (testingLiters < 0) {
+      setActionMessage({ type: "error", text: "Testing liters cannot be negative." });
+      return;
+    }
+
+    if (actualCash < 0) {
+      setActionMessage({ type: "error", text: "Actual drawer cash cannot be negative." });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await saveShiftProgress(activeShift.id, {
+        ...(hasClosingInput && {
+          closing_meter: closingMeter,
+          total_liters: calculations.totalLitersSold,
+          expected_cash: calculations.expectedCash,
+          shortage_amount: hasCashInput ? calculations.shortageOrExcess : activeShift.shortage_amount,
+        }),
+        ...(hasTestingInput && {
+          testing_liters: testingLiters,
+        }),
+        ...(hasCashInput && {
+          actual_cash: actualCash,
+          shortage_amount: calculations.shortageOrExcess,
+        }),
+      });
+
+      setActionMessage({
+        type: "success",
+        text: "Progress saved. Duty remains active until you choose End Duty & Upload.",
+      });
+    } catch (err) {
+      console.error("Failed to save duty progress in Dexie:", err);
+      setActionMessage({ type: "error", text: "Failed to save progress to local database." });
     } finally {
       setIsProcessing(false);
     }
@@ -678,15 +754,38 @@ export default function ShiftDutyManager({
                 </div>
               </div>
 
-              {/* End Duty Action Button */}
-              <div className="pt-2">
+              {/* Duty Actions */}
+              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={handleSaveProgress}
+                  disabled={isProcessing}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 text-zinc-100 font-semibold px-4 py-3 text-sm shadow-lg shadow-zinc-950/40 transition-all focus:outline-none focus:ring-2 focus:ring-zinc-500/30 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {isProcessing ? (
+                    <span>Saving Progress...</span>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 16v4m-2-2h4M4 4h16v8H4z"
+                        />
+                      </svg>
+                      <span>Save Progress</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   type="submit"
                   disabled={isProcessing || !calculations.isClosingValid}
                   className="w-full rounded-xl border border-rose-500/40 bg-rose-600 hover:bg-rose-500 text-white font-semibold px-4 py-3 text-sm shadow-lg shadow-rose-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-rose-500/50 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
                 >
                   {isProcessing ? (
-                    <span>Saving Shift Duty to Offline Dexie...</span>
+                    <span>Ending Duty & Uploading...</span>
                   ) : (
                     <>
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -697,7 +796,7 @@ export default function ShiftDutyManager({
                           d="M5 13l4 4L19 7"
                         />
                       </svg>
-                      <span>Complete & End Duty (Save Shift)</span>
+                      <span>End Duty & Upload</span>
                     </>
                   )}
                 </button>
