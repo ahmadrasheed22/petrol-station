@@ -73,6 +73,41 @@ export async function startShift(
   return { id: id as number, ...shiftData };
 }
 
+export async function saveShiftProgress(
+  id: number,
+  options?: {
+    closing_meter?: number;
+    testing_liters?: number;
+    total_liters?: number;
+    expected_cash?: number;
+    actual_cash?: number;
+    shortage_amount?: number;
+  }
+): Promise<void> {
+  await db.shifts.update(id, {
+    ...(options?.closing_meter !== undefined && {
+      closing_meter: options.closing_meter,
+    }),
+    ...(options?.testing_liters !== undefined && {
+      testing_liters: options.testing_liters,
+    }),
+    ...(options?.total_liters !== undefined && {
+      total_liters: options.total_liters,
+    }),
+    ...(options?.expected_cash !== undefined && {
+      expected_cash: options.expected_cash,
+    }),
+    ...(options?.actual_cash !== undefined && {
+      actual_cash: options.actual_cash,
+    }),
+    ...(options?.shortage_amount !== undefined && {
+      shortage_amount: options.shortage_amount,
+    }),
+    status: "active",
+    sync_status: "pending",
+  });
+}
+
 export async function endShift(
   id: number,
   options?: {

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, PendingExpense, PendingLedgerTransaction } from "@/lib/offline-db";
 
-type EntryType = "expense" | "credit";
+type EntryType = "expense" | "sale";
 
 interface UnifiedEntry {
   uid: string;
@@ -24,7 +24,7 @@ interface UnifiedEntry {
 
 export default function RecentEntries() {
   const [mounted, setMounted] = useState(false);
-  const [filter, setFilter] = useState<"all" | "expense" | "credit">("all");
+  const [filter, setFilter] = useState<"expense" | "sale">("sale");
 
   useEffect(() => {
     setMounted(true);
@@ -77,6 +77,7 @@ export default function RecentEntries() {
     // Map credit sales (ledger)
     (ledgerTxs || []).forEach((tx: PendingLedgerTransaction) => {
       if (!tx.id) return;
+      if (tx.transaction_type !== "credit") return;
       const isToday = new Date(tx.created_at).toDateString() === todayStr;
       if (isToday) {
         const rate = tx.price_per_liter || tx.applied_sp || 0;
@@ -84,9 +85,9 @@ export default function RecentEntries() {
         list.push({
           uid: `ledger-${tx.id}`,
           originalId: tx.id,
-          type: "credit",
-          title: tx.customer_name || "Credit Customer",
-          subtitle: liters > 0 ? `${liters} Liters @ Rs. ${rate}/L` : "Fuel Credit",
+          type: "sale",
+          title: tx.customer_name || "Fuel Sale",
+          subtitle: liters > 0 ? `${liters} Liters @ Rs. ${rate}/L` : "Fuel Sale",
           amount: tx.amount,
           liters,
           pricePerLiter: rate,
@@ -105,7 +106,6 @@ export default function RecentEntries() {
 
   // Filtered by selected tab
   const displayedEntries = useMemo(() => {
-    if (filter === "all") return todayEntries;
     return todayEntries.filter((e) => e.type === filter);
   }, [todayEntries, filter]);
 
@@ -118,8 +118,33 @@ export default function RecentEntries() {
     );
   }
 
-  const expenseCount = todayEntries.filter((e) => e.type === "expense").length;
-  const creditCount = todayEntries.filter((e) => e.type === "credit").length;
+  const expenseEntries = todayEntries.filter((e) => e.type === "expense");
+  const saleEntries = todayEntries.filter((e) => e.type === "sale");
+
+  const expenseTotal = expenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const fuelSalesTotalAmount = saleEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const fuelSalesTotalLiters = saleEntries.reduce((sum, entry) => sum + (entry.liters || 0), 0);
+  const activeSummary =
+    filter === "sale"
+      ? {
+          label: "Total Fuel Sold",
+          value: `${fuelSalesTotalLiters.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} L`,
+          helper: `Fuel Sales: Rs. ${fuelSalesTotalAmount.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+        }
+      : {
+          label: "Total Expenses",
+          value: `Rs. ${expenseTotal.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+          helper: `${expenseEntries.length} expense${expenseEntries.length === 1 ? "" : "s"} recorded today`,
+        };
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl space-y-6">
@@ -144,7 +169,7 @@ export default function RecentEntries() {
           <div>
             <h2 className="text-lg font-bold text-white">Recent Entries (Today)</h2>
             <p className="text-xs text-zinc-400">
-              Audit log of today&apos;s logged expenses and credit sales (immutable records)
+              Audit log of today&apos;s fuel sales and expenses (immutable records)
             </p>
           </div>
         </div>
@@ -153,14 +178,14 @@ export default function RecentEntries() {
         <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
           <button
             type="button"
-            onClick={() => setFilter("all")}
+            onClick={() => setFilter("sale")}
             className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-              filter === "all"
-                ? "bg-zinc-800 text-white shadow-sm"
+              filter === "sale"
+                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
-            All ({todayEntries.length})
+            Fuel Sales ({saleEntries.length})
           </button>
           <button
             type="button"
@@ -171,29 +196,27 @@ export default function RecentEntries() {
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
-            Expenses ({expenseCount})
+            Expenses ({expenseEntries.length})
           </button>
-          <button
-            type="button"
-            onClick={() => setFilter("credit")}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-              filter === "credit"
-                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Credit Sales ({creditCount})
-          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-zinc-500">{activeSummary.label}</p>
+            <p className="mt-1 text-2xl font-black text-white">{activeSummary.value}</p>
+          </div>
+          <p className="text-xs text-zinc-400">{activeSummary.helper}</p>
         </div>
       </div>
 
       {/* Entries List */}
       {displayedEntries.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center space-y-2">
-          <p className="text-sm font-medium text-zinc-400">No entries logged today</p>
+          <p className="text-sm font-medium text-zinc-400">No {filter === "sale" ? "fuel sales" : "expenses"} logged today</p>
           <p className="text-xs text-zinc-500">
-            Expenses logged via the &quot;Log Expense&quot; form and credit sales logged via
-            &quot;Khata&quot; will appear here. Records are permanently locked upon submission.
+            Fuel sales and expenses will appear here as they are recorded. Records are permanently locked upon submission.
           </p>
         </div>
       ) : (
@@ -220,7 +243,7 @@ export default function RecentEntries() {
                         : "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
                     }`}
                   >
-                    {entry.type === "expense" ? "Expense" : "Credit (Udhar)"}
+                    {entry.type === "expense" ? "Expense" : "Fuel Sale"}
                   </span>
 
                   <div>
