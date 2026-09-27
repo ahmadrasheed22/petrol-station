@@ -1,19 +1,15 @@
 "use client";
 
-import { useState, useEffect, useId, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
 import { startShift, endShift, saveShiftProgress } from "@/lib/services/offline-service";
 import { createClient } from "@/lib/supabase/client";
 import ShiftDutyActiveForm from "@/components/ShiftDutyActiveForm";
 import RecentDutiesLog from "@/components/RecentDutiesLog";
+import ShiftDutyStartForm, { type ShiftDutyProduct } from "@/components/ShiftDutyStartForm";
 
-interface Product {
-  id: string;
-  name: string;
-  current_sp?: number;
-  current_cp?: number;
-}
+type Product = ShiftDutyProduct;
 
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
@@ -48,11 +44,6 @@ export default function ShiftDutyManager({
   // Processing & Feedback State
   const [isProcessing, setIsProcessing] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Accessible IDs
-  const productSelectId = useId();
-  const startPriceId = useId();
-  const openingMeterId = useId();
 
   // Reactive Dexie queries
   const activeShift = useLiveQuery(
@@ -435,100 +426,18 @@ export default function ShiftDutyManager({
         {/* CASE 1: NO ACTIVE SHIFT -> START DUTY COMPONENT           */}
         {/* ========================================================= */}
         {!activeShift && (
-          <form onSubmit={handleStartDuty} className="space-y-4">
-            {/* Product Selection */}
-            <div>
-              <label
-                htmlFor={productSelectId}
-                className="block text-xs font-medium text-zinc-400 mb-1.5"
-              >
-                Nozzle Fuel Product
-              </label>
-              <select
-                id={productSelectId}
-                value={selectedProductId}
-                onChange={(e) => handleProductChange(e.target.value)}
-                disabled={isLoadingProducts}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors"
-                required
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Price Per Liter & Opening Meter Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor={startPriceId}
-                  className="block text-xs font-medium text-zinc-400 mb-1.5"
-                >
-                  Today&apos;s Price (Rs./Liter)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-xs text-zinc-500 font-mono">
-                    Rs.
-                  </span>
-                  <input
-                    id={startPriceId}
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    value={startPriceStr}
-                    onChange={(e) => setStartPriceStr(e.target.value)}
-                    placeholder="270.00"
-                    className="w-full rounded-xl border border-zinc-800 bg-zinc-950 pl-10 pr-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors font-mono"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor={openingMeterId}
-                  className="block text-xs font-medium text-zinc-400 mb-1.5"
-                >
-                  Opening Meter Reading
-                </label>
-                <div className="relative">
-                  <input
-                    id={openingMeterId}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={openingMeterStr}
-                    onChange={(e) => setOpeningMeterStr(e.target.value)}
-                    placeholder="e.g. 154230.50"
-                    className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors font-mono"
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isProcessing}
-                className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-              >
-                {isProcessing ? (
-                  <span>Opening Duty...</span>
-                ) : (
-                  <>
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span>Start Duty (Open Shift)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
+          <ShiftDutyStartForm
+            products={products}
+            selectedProductId={selectedProductId}
+            startPriceStr={startPriceStr}
+            openingMeterStr={openingMeterStr}
+            isLoadingProducts={isLoadingProducts}
+            isProcessing={isProcessing}
+            onSubmit={handleStartDuty}
+            onProductChange={handleProductChange}
+            onPriceChange={setStartPriceStr}
+            onOpeningMeterChange={setOpeningMeterStr}
+          />
         )}
 
         {/* ========================================================= */}
