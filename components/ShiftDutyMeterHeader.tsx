@@ -1,10 +1,12 @@
 interface ShiftDutyMeterHeaderProps {
+  mode: "management" | "readings";
   isActive: boolean;
   message: { type: "success" | "error"; text: string } | null;
   onDismissMessage: () => void;
 }
 
 export default function ShiftDutyMeterHeader({
+  mode,
   isActive,
   message,
   onDismissMessage,
@@ -24,9 +26,13 @@ export default function ShiftDutyMeterHeader({
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-bold text-white tracking-tight">Duty Meter Readings</h2>
+            <h2 className="text-lg font-bold text-white tracking-tight">
+              {mode === "management" ? "Shift Management" : "Meter Readings"}
+            </h2>
             <p className="text-xs text-zinc-400">
-              Start duty first, then record opening and closing readings for every active meter.
+              {mode === "management"
+                ? "Start or end your duty session."
+                : "Record opening and closing readings for every active meter."}
             </p>
           </div>
         </div>
