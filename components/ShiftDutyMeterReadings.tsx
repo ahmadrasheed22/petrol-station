@@ -39,6 +39,7 @@ interface ShiftRecordWithMeterDraft extends ShiftRecord {
 }
 
 interface ShiftDutyMeterReadingsProps {
+  mode: "management" | "readings";
   userId: string;
   workerName: string;
 }
@@ -69,6 +70,7 @@ const applyDraftIfAvailable = (
 };
 
 export default function ShiftDutyMeterReadings({
+  mode,
   userId,
   workerName,
 }: ShiftDutyMeterReadingsProps) {
@@ -175,8 +177,7 @@ export default function ShiftDutyMeterReadings({
 
   const calculateSaleAmount = (reading: MeterReading | undefined): number => {
     if (!reading || !reading.closingReading.trim()) return 0;
-    const dispensed = (parseFloat(reading.closingReading) || 0) -
-      (parseFloat(reading.openingReading) || 0);
+    const dispensed = calculateDispensed(reading.openingReading, reading.closingReading);
     return dispensed * (parseFloat(reading.pricePerLiter) || 0);
   };
 
@@ -595,29 +596,87 @@ export default function ShiftDutyMeterReadings({
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl space-y-6">
       <ShiftDutyMeterHeader
+        mode={mode}
         isActive={Boolean(activeShift)}
         message={message}
         onDismissMessage={() => setMessage(null)}
       />
 
-      {!activeShift ? (
+      {mode === "management" ? (
+        <div className="space-y-4">
+          {!activeShift ? (
+            <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+              <div>
+                <h3 className="text-base font-semibold text-white">No active duty</h3>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Start duty to unlock Meter Readings, Daily Expenses, Khata, and Tank Inventory.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleStartDuty}
+                disabled={isProcessing || loading}
+                className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isProcessing ? "Starting Duty..." : loading ? "Loading Meter Setup..." : "Start Duty"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4 rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-emerald-400">Active Duty Session</p>
+                  <h3 className="mt-1 text-lg font-semibold text-white">{workerName}</h3>
+                  <p className="text-xs text-zinc-400">
+                    Started {new Date(activeShift.start_time).toLocaleString([], {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-xs text-zinc-400">
+                  <div>
+                    <span className="text-zinc-500">Shift ID:</span>{" "}
+                    <span className="font-mono text-zinc-200">{activeShift.shift_id}</span>
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-zinc-500">Meter upload:</span>{" "}
+                    <span className={
+                      (activeShift as ShiftRecordWithMeterDraft).meter_readings_uploaded
+                        ? "font-semibold text-emerald-400"
+                        : "font-semibold text-amber-300"
+                    }>
+                      {(activeShift as ShiftRecordWithMeterDraft).meter_readings_uploaded ? "Complete" : "Required"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm text-zinc-400">
+                Upload the current meter readings before ending duty. Ending duty locks the worker menu again.
+              </p>
+              <button
+                type="button"
+                onClick={handleEndDuty}
+                disabled={
+                  isProcessing ||
+                  !(activeShift as ShiftRecordWithMeterDraft).meter_readings_uploaded ||
+                  readingsDirty
+                }
+                className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
+              >
+                {isProcessing ? "Processing..." : "End Duty"}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : !activeShift ? (
         <div className="space-y-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
           <div className="space-y-2">
-            <h3 className="text-base font-semibold text-white">You must start a shift to enter meter readings.</h3>
+            <h3 className="text-base font-semibold text-white">Meter readings are locked</h3>
             <p className="text-sm text-zinc-400">
-              {loading
-                ? "Loading meter setup..."
-                : "Meter inputs stay locked until duty is officially started and the worker session time is recorded."}
+              Start duty from Shift Management to unlock meter entry.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleStartDuty}
-            disabled={isProcessing || loading}
-            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 cursor-pointer"
-          >
-            {isProcessing ? "Starting Duty..." : loading ? "Loading Meter Setup..." : "Start Duty"}
-          </button>
         </div>
       ) : (
         <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
@@ -660,22 +719,31 @@ export default function ShiftDutyMeterReadings({
 
           <div className="grid grid-cols-1 gap-3 border-t border-zinc-800/50 pt-4 sm:grid-cols-3">
             {sortedFuelTypes.map((fuelType) => {
-              const total = metersByFuelType[fuelType].reduce(
-                (sum, meter) => sum + calculateSaleAmount(readings[meter.id]),
-                0
+              const fuelTotals = metersByFuelType[fuelType].reduce(
+                (totals, meter) => ({
+                  liters: totals.liters + calculateDispensed(
+                    readings[meter.id]?.openingReading || "0",
+                    readings[meter.id]?.closingReading || ""
+                  ),
+                  rupees: totals.rupees + calculateSaleAmount(readings[meter.id]),
+                }),
+                { liters: 0, rupees: 0 }
               );
               return (
                 <div key={fuelType} className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-4 py-3">
-                  <p className="text-xs text-zinc-400">Total {fuelType} Sale</p>
+                  <p className="text-xs text-zinc-400">Total {fuelType} Sold</p>
                   <p className="mt-1 text-lg font-bold text-white">
-                    Rs. {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {fuelTotals.liters.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-emerald-300">
+                    Rs. {fuelTotals.rupees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
               );
             })}
           </div>
 
-          <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2">
             <button
               type="button"
               onClick={handleSaveProgress}
@@ -691,14 +759,6 @@ export default function ShiftDutyMeterReadings({
               className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
             >
               {isProcessing ? "Uploading..." : "Upload"}
-            </button>
-            <button
-              type="button"
-              onClick={handleEndDuty}
-              disabled={isProcessing}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
-            >
-              {isProcessing ? "Processing..." : "End Duty"}
             </button>
           </div>
         </form>

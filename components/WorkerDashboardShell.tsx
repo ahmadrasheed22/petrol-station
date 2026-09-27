@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useLiveQuery } from "dexie-react-hooks";
 import { logout } from "@/actions/auth-actions";
 import DashboardStats from "@/components/DashboardStats";
 import ExpenseForm from "@/components/ExpenseForm";
@@ -11,10 +12,12 @@ import SyncIndicator from "@/components/SyncIndicator";
 import TankStatus from "@/components/TankStatus";
 import CreditSaleForm from "@/components/CreditSaleForm";
 import CustomerBalances from "@/components/CustomerBalances";
+import { db } from "@/lib/offline-db";
 
-export type WorkerView = "home" | "expenses" | "khata" | "inventory";
+export type WorkerView = "duty" | "home" | "expenses" | "khata" | "inventory";
 
 const NAV_ITEMS: Array<{ key: WorkerView; label: string; shortLabel: string; icon: string }> = [
+  { key: "duty", label: "Shift Management", shortLabel: "Duty", icon: "◷" },
   { key: "home", label: "Meter Readings", shortLabel: "Home", icon: "◔" },
   { key: "expenses", label: "Daily Expenses", shortLabel: "Expenses", icon: "✦" },
   { key: "khata", label: "Khata", shortLabel: "Khata", icon: "▣" },
@@ -34,11 +37,18 @@ export default function WorkerDashboardShell({
   userEmail?: string | null;
   isOwnerPreview?: boolean;
 }) {
-  const [activeView, setActiveView] = useState<WorkerView>("home");
+  const [activeView, setActiveView] = useState<WorkerView>("duty");
+  const hasActiveDuty = useLiveQuery(
+    async () => Boolean(await db.shifts.where("status").equals("active").first()),
+    [],
+    false
+  ) ?? false;
+
+  const visibleView = hasActiveDuty ? activeView : "duty";
 
   const currentView = useMemo(
-    () => NAV_ITEMS.find((item) => item.key === activeView) ?? NAV_ITEMS[0],
-    [activeView]
+    () => NAV_ITEMS.find((item) => item.key === visibleView) ?? NAV_ITEMS[0],
+    [visibleView]
   );
 
   return (
@@ -66,17 +76,21 @@ export default function WorkerDashboardShell({
 
           <nav className="space-y-2">
             {NAV_ITEMS.map((item) => {
-              const isActive = activeView === item.key;
+              const isActive = visibleView === item.key;
+              const isLocked = item.key !== "duty" && !hasActiveDuty;
               return (
                 <button
                   key={item.key}
                   type="button"
                   onClick={() => setActiveView(item.key)}
+                  disabled={isLocked}
                   className={[
                     "flex w-full items-center justify-between rounded-2xl border px-3.5 py-3 text-left transition-all duration-200",
                     isActive
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 shadow-lg shadow-emerald-500/10"
-                      : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900/80 hover:text-white",
+                      : isLocked
+                        ? "border-zinc-800/60 bg-zinc-950/20 text-zinc-600 cursor-not-allowed"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900/80 hover:text-white",
                   ].join(" ")}
                 >
                   <span className="flex items-center gap-3">
@@ -150,19 +164,23 @@ export default function WorkerDashboardShell({
             </div>
 
             <div className="border-t border-zinc-800 bg-zinc-950/60 px-4 py-3 lg:hidden">
-              <nav className="grid grid-cols-4 gap-2">
+              <nav className="grid grid-cols-5 gap-1.5">
                 {NAV_ITEMS.map((item) => {
-                  const isActive = activeView === item.key;
+                  const isActive = visibleView === item.key;
+                  const isLocked = item.key !== "duty" && !hasActiveDuty;
                   return (
                     <button
                       key={item.key}
                       type="button"
                       onClick={() => setActiveView(item.key)}
+                      disabled={isLocked}
                       className={[
                         "rounded-xl border px-2 py-2 text-center text-[11px] font-semibold transition-colors",
                         isActive
                           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                          : "border-zinc-800 bg-zinc-900 text-zinc-400",
+                          : isLocked
+                            ? "border-zinc-800/60 bg-zinc-950/40 text-zinc-600 cursor-not-allowed"
+                            : "border-zinc-800 bg-zinc-900 text-zinc-400",
                       ].join(" ")}
                     >
                       {item.shortLabel}
@@ -174,7 +192,7 @@ export default function WorkerDashboardShell({
           </header>
 
           <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 pb-24 lg:pb-8">
-            <div className={activeView === "home" ? "space-y-6" : "hidden"}>
+              <div className={visibleView === "home" ? "space-y-6" : "hidden"}>
               <>
                 <section className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -197,9 +215,16 @@ export default function WorkerDashboardShell({
                 </section>
 
                 <DashboardStats />
-                <ShiftDutyMeterReadings userId={userId} workerName={workerName} />
                 <RecentEntries initialFilter="sale" showFilterTabs={false} />
               </>
+            </div>
+
+            <div className={visibleView === "duty" || visibleView === "home" ? "" : "hidden"}>
+              <ShiftDutyMeterReadings
+                mode={visibleView === "duty" ? "management" : "readings"}
+                userId={userId}
+                workerName={workerName}
+              />
             </div>
 
             {activeView === "expenses" && (
