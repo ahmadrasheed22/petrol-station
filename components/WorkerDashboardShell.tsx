@@ -44,7 +44,8 @@ export default function WorkerDashboardShell({
     false
   ) ?? false;
 
-  const visibleView = hasActiveDuty ? activeView : "duty";
+  const hasDutyAccess = role === "owner" || hasActiveDuty;
+  const visibleView = hasDutyAccess ? activeView : "duty";
 
   const currentView = useMemo(
     () => NAV_ITEMS.find((item) => item.key === visibleView) ?? NAV_ITEMS[0],
@@ -77,7 +78,7 @@ export default function WorkerDashboardShell({
           <nav className="space-y-2">
             {NAV_ITEMS.map((item) => {
               const isActive = visibleView === item.key;
-              const isLocked = item.key !== "duty" && !hasActiveDuty;
+              const isLocked = item.key !== "duty" && !hasDutyAccess;
               return (
                 <button
                   key={item.key}
@@ -167,7 +168,7 @@ export default function WorkerDashboardShell({
               <nav className="grid grid-cols-5 gap-1.5">
                 {NAV_ITEMS.map((item) => {
                   const isActive = visibleView === item.key;
-                  const isLocked = item.key !== "duty" && !hasActiveDuty;
+                  const isLocked = item.key !== "duty" && !hasDutyAccess;
                   return (
                     <button
                       key={item.key}
@@ -227,21 +228,21 @@ export default function WorkerDashboardShell({
               />
             </div>
 
-            {activeView === "expenses" && (
+            {visibleView === "expenses" && (
               <>
                 <ExpenseForm />
                 <RecentEntries initialFilter="expense" showFilterTabs={false} userId={userId} />
               </>
             )}
 
-            {activeView === "khata" && (
+            {visibleView === "khata" && (
               <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
                 <CreditSaleForm />
                 <CustomerBalances />
               </div>
             )}
 
-            {activeView === "inventory" && <TankStatus />}
+            {visibleView === "inventory" && <TankStatus />}
           </main>
         </div>
       </div>

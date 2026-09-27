@@ -4,12 +4,12 @@ import AdminOverviewLive from "@/components/admin/AdminOverviewLive";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Overview - Sales & Shortages | Station Admin Hub",
-  description: "Executive real-time audit of fuel sales, meter readings, cash collections, and shortages.",
+  title: "Overview | Station Admin Hub",
+  description: "Live performance and cash reconciliation for your station.",
 };
 
 export default async function AdminOverviewPage() {
   const data = await getAdminOverviewData();
 
-  return <AdminOverviewLive initialData={data} />;
+  return <AdminOverviewLive initialData={data} view="overview" />;
 }

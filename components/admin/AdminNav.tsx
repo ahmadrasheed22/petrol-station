@@ -33,7 +33,7 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
       ),
     },
     {
-      label: "Manage Workers",
+      label: "Staff Management",
       sublabel: "Accounts & Duties",
       href: "/admin/workers",
       icon: (
@@ -48,7 +48,7 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
       ),
     },
     {
-      label: "Inventory",
+      label: "Inventory & Tanks",
       sublabel: "Tanks & Stock In",
       href: "/admin/inventory",
       icon: (
@@ -78,8 +78,8 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
       ),
     },
     {
-      label: "Hardware",
-      sublabel: "Pump Config",
+      label: "Pump Configuration",
+      sublabel: "Nozzles & Hardware",
       href: "/admin/pump-config",
       icon: (
         <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,7 +88,42 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
         </svg>
       ),
     },
+    {
+      label: "Meter Readings",
+      sublabel: "Liters & Reconciliation",
+      href: "/admin/meter-readings",
+      icon: (
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
+    {
+      label: "Expenses",
+      sublabel: "Uploaded Expense Log",
+      href: "/admin/expenses",
+      icon: (
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
   ];
+  const navigationOrder: Record<string, number> = {
+    "/admin": 0,
+    "/admin/meter-readings": 1,
+    "/admin/expenses": 2,
+    "/admin/inventory": 3,
+    "/admin/workers": 4,
+    "/admin/pump-config": 5,
+    "/khata": 6,
+  };
+  const orderedNavLinks = [...navLinks].sort(
+    (first, second) => navigationOrder[first.href] - navigationOrder[second.href]
+  );
+
+  const isLinkActive = (href: string) =>
+    href === "/admin" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <>
@@ -100,6 +135,8 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? "Close owner modules" : "Open owner modules"}
+              aria-expanded={mobileMenuOpen}
               className="md:hidden rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
             >
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -127,29 +164,6 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
               <p className="text-[11px] text-zinc-400">Management & Audit Control</p>
             </div>
           </div>
-
-          {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 backdrop-blur-md">
-            {navLinks.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                    isActive
-                      ? "bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20"
-                      : "text-zinc-400 hover:bg-zinc-800/80 hover:text-zinc-200"
-                  }`}
-                >
-                  <span className={isActive ? "text-zinc-950" : "text-zinc-400"}>
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
 
           {/* Right Controls: Realtime Status, Service Key Status, Worker Mode Switcher, User & Sign Out */}
           <div className="flex items-center gap-2 sm:gap-3">
@@ -239,9 +253,9 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
 
         {/* Mobile Nav Dropdown */}
         {mobileMenuOpen && (
-          <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3 md:hidden space-y-1">
-            {navLinks.map((item) => {
-              const isActive = pathname === item.href;
+          <nav aria-label="Owner modules" className="border-t border-zinc-800 bg-zinc-950 px-4 py-3 md:hidden space-y-1">
+            {orderedNavLinks.map((item) => {
+              const isActive = isLinkActive(item.href);
               return (
                 <Link
                   key={item.href}
@@ -263,9 +277,38 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
                 </Link>
               );
             })}
-          </div>
+          </nav>
         )}
       </header>
+
+      <aside className="fixed inset-y-0 left-0 top-[65px] z-20 hidden w-64 border-r border-zinc-800/90 bg-zinc-950/95 px-3 py-5 md:block">
+        <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+          Owner Workspace
+        </p>
+        <nav aria-label="Owner modules" className="space-y-1">
+          {orderedNavLinks.map((item) => {
+            const isActive = isLinkActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                  isActive
+                    ? "border-amber-500/25 bg-amber-500/10 text-amber-300"
+                    : "border-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-100"
+                }`}
+              >
+                <span className={isActive ? "text-amber-400" : "text-zinc-500"}>{item.icon}</span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{item.label}</span>
+                  <span className="mt-0.5 block text-[11px] text-zinc-500">{item.sublabel}</span>
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
     </>
   );
 }
