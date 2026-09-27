@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { cleanPhoneNumber, phoneToWorkerEmail, isWorkerEmail, workerEmailToPhone, formatPhoneDisplay } from "@/lib/utils/phone";
 import { revalidatePath } from "next/cache";
+import { getAdminOverviewDataService } from "@/actions/admin-overview-service";
 
 export interface CreateWorkerInput {
   name: string;
@@ -249,91 +250,5 @@ export async function getWorkersList(): Promise<WorkerItem[]> {
  * Retrieves aggregated metrics and recent shifts for the Owner's Admin Overview.
  */
 export async function getAdminOverviewData(): Promise<OverviewStats> {
-  const fallback: OverviewStats = {
-    totalWorkers: 0,
-    totalShifts: 0,
-    todayLiters: 0,
-    todayExpectedCash: 0,
-    todayActualCash: 0,
-    todayShortageAmount: 0,
-    recentShifts: [],
-  };
-
-  try {
-    const supabase = await createClient();
-
-    // Fetch workers count
-    const { count: workersCount } = await supabase
-      .from("profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "worker");
-
-    // Fetch shifts and worker profiles
-    const { data: shifts, count: shiftsCount } = await supabase
-      .from("shifts")
-      .select(
-        `
-        id,
-        worker_id,
-        start_time,
-        end_time,
-        opening_meter,
-        closing_meter,
-        testing_liters,
-        total_liters,
-        price_per_liter,
-        expected_cash,
-        actual_cash,
-        shortage_amount,
-        product_name,
-        profiles (
-          name
-        )
-      `
-      )
-      .order("start_time", { ascending: false })
-      .limit(20);
-
-    const formattedShifts = (shifts || []).map((s: any) => ({
-      id: s.id,
-      worker_id: s.worker_id,
-      worker_name: s.profiles?.name || `Worker (${s.worker_id?.slice(0, 6) || "Unknown"})`,
-      product_name: s.product_name || "Fuel",
-      start_time: s.start_time,
-      end_time: s.end_time,
-      opening_meter: Number(s.opening_meter || 0),
-      closing_meter: Number(s.closing_meter || 0),
-      testing_liters: Number(s.testing_liters || 0),
-      total_liters: Number(s.total_liters || 0),
-      price_per_liter: Number(s.price_per_liter || 0),
-      expected_cash: Number(s.expected_cash || 0),
-      actual_cash: Number(s.actual_cash || 0),
-      shortage_amount: Number(s.shortage_amount || 0),
-    }));
-
-    // Aggregate today's shifts (or all recent shifts)
-    const today = new Date().toISOString().slice(0, 10);
-    const todayShifts = formattedShifts.filter((s) => s.start_time.startsWith(today));
-
-    // If no shifts today yet, aggregate across recent shifts for demo/historical metrics
-    const sampleSet = todayShifts.length > 0 ? todayShifts : formattedShifts.slice(0, 10);
-
-    const todayLiters = sampleSet.reduce((acc, s) => acc + s.total_liters, 0);
-    const todayExpectedCash = sampleSet.reduce((acc, s) => acc + s.expected_cash, 0);
-    const todayActualCash = sampleSet.reduce((acc, s) => acc + s.actual_cash, 0);
-    const todayShortageAmount = sampleSet.reduce((acc, s) => acc + s.shortage_amount, 0);
-
-    return {
-      totalWorkers: workersCount || 0,
-      totalShifts: shiftsCount || formattedShifts.length,
-      todayLiters,
-      todayExpectedCash,
-      todayActualCash,
-      todayShortageAmount,
-      recentShifts: formattedShifts,
-    };
-  } catch (err) {
-    console.error("Error getting admin overview data:", err);
-    return fallback;
-  }
+  return getAdminOverviewDataService();
 }
