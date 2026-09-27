@@ -18,7 +18,7 @@ export default async function KhataPage() {
   const { user, profile } = authData;
 
   return (
-    <DutyAccessGuard>
+    <DutyAccessGuard role={profile.role}>
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
       {/* Header & Navigation */}
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md px-6 py-4">

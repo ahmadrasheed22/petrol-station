@@ -5,14 +5,20 @@ import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
 
-export default function DutyAccessGuard({ children }: { children: ReactNode }) {
+export default function DutyAccessGuard({
+  children,
+  role,
+}: {
+  children: ReactNode;
+  role: string;
+}) {
   const hasActiveDuty = useLiveQuery(
     async () => Boolean(await db.shifts.where("status").equals("active").first()),
     [],
     false
   ) ?? false;
 
-  if (!hasActiveDuty) {
+  if (role !== "owner" && !hasActiveDuty) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 text-zinc-100">
         <section className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/70 p-6 text-center">
