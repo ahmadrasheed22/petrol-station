@@ -3,6 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { syncLedgerToCloudService } from "@/actions/ledger-sync-service";
 import { syncInventoryToCloudService } from "@/actions/inventory-sync-service";
+import {
+  syncExpensesToCloudService,
+  syncTransactionsToCloudService,
+} from "@/actions/transaction-sync-service";
 
 export interface TransactionPayload {
   shift_id?: string;
@@ -193,90 +197,7 @@ export async function syncShiftsToCloud(
 export async function syncTransactionsToCloud(
   transactions: TransactionPayload[]
 ): Promise<SyncResult> {
-  if (!transactions || transactions.length === 0) {
-    return { success: true, insertedCount: 0 };
-  }
-
-  try {
-    const supabase = await createClient();
-
-    // Verify existing shifts to safeguard foreign key references
-    const shiftIds = Array.from(
-      new Set(
-        transactions
-          .map((t) => t.shift_id)
-          .filter((id): id is string => Boolean(id))
-      )
-    );
-
-    let validShiftIds = new Set<string>();
-    if (shiftIds.length > 0) {
-      const { data: existingShifts } = await supabase
-        .from("shifts")
-        .select("id")
-        .in("id", shiftIds);
-      validShiftIds = new Set((existingShifts || []).map((s) => s.id));
-    }
-
-    // Verify existing products to safeguard foreign key references
-    const productIds = Array.from(
-      new Set(
-        transactions
-          .map((t) => t.product_id)
-          .filter((id): id is string => Boolean(id))
-      )
-    );
-
-    let validProductIds = new Set<string>();
-    if (productIds.length > 0) {
-      const { data: existingProducts } = await supabase
-        .from("products")
-        .select("id")
-        .in("id", productIds);
-      validProductIds = new Set((existingProducts || []).map((p) => p.id));
-    }
-
-    const formattedTransactions = transactions.map((t) => {
-      const price = t.price_per_liter ?? t.applied_sp ?? 0;
-      const liters = t.liters ?? 0;
-      return {
-        shift_id:
-          t.shift_id && validShiftIds.has(t.shift_id) ? t.shift_id : null,
-        product_id:
-          t.product_id && validProductIds.has(t.product_id) ? t.product_id : null,
-        type: t.type || "sale",
-        liters,
-        price_per_liter: price,
-        applied_sp: price,
-        applied_cp: t.applied_cp ?? 0,
-        total_amount: t.total_amount ?? liters * price,
-        created_at: t.created_at || new Date().toISOString(),
-      };
-    });
-
-    const { data, error } = await supabase
-      .from("transactions")
-      .insert(formattedTransactions)
-      .select("id");
-
-    if (error) {
-      const fullErrorMsg = [error.message, error.details, error.hint]
-        .filter(Boolean)
-        .join(" | ");
-      console.error("Supabase insert transactions error:", fullErrorMsg);
-      return { success: false, error: fullErrorMsg };
-    }
-
-    return {
-      success: true,
-      insertedCount: data ? data.length : transactions.length,
-    };
-  } catch (err: unknown) {
-    const errorMsg =
-      err instanceof Error ? err.message : "Failed to sync transactions to cloud.";
-    console.error("syncTransactionsToCloud exception:", err);
-    return { success: false, error: errorMsg };
-  }
+  return syncTransactionsToCloudService(transactions);
 }
 
 /**
@@ -285,65 +206,7 @@ export async function syncTransactionsToCloud(
 export async function syncExpensesToCloud(
   expenses: ExpensePayload[]
 ): Promise<SyncResult> {
-  if (!expenses || expenses.length === 0) {
-    return { success: true, insertedCount: 0 };
-  }
-
-  try {
-    const supabase = await createClient();
-
-    // Verify existing shifts to safeguard foreign key references
-    const shiftIds = Array.from(
-      new Set(
-        expenses
-          .map((e) => e.shift_id)
-          .filter((id): id is string => Boolean(id))
-      )
-    );
-
-    let validShiftIds = new Set<string>();
-    if (shiftIds.length > 0) {
-      const { data: existingShifts } = await supabase
-        .from("shifts")
-        .select("id")
-        .in("id", shiftIds);
-      validShiftIds = new Set((existingShifts || []).map((s) => s.id));
-    }
-
-    const formattedExpenses = expenses.map((e) => {
-      const descParts = [e.category, e.description].filter(Boolean);
-      return {
-        shift_id:
-          e.shift_id && validShiftIds.has(e.shift_id) ? e.shift_id : null,
-        amount: e.amount ?? 0,
-        description: descParts.length > 0 ? descParts.join(" - ") : null,
-        created_at: e.created_at || new Date().toISOString(),
-      };
-    });
-
-    const { data, error } = await supabase
-      .from("expenses")
-      .insert(formattedExpenses)
-      .select("id");
-
-    if (error) {
-      const fullErrorMsg = [error.message, error.details, error.hint]
-        .filter(Boolean)
-        .join(" | ");
-      console.error("Supabase insert expenses error:", fullErrorMsg);
-      return { success: false, error: fullErrorMsg };
-    }
-
-    return {
-      success: true,
-      insertedCount: data ? data.length : expenses.length,
-    };
-  } catch (err: unknown) {
-    const errorMsg =
-      err instanceof Error ? err.message : "Failed to sync expenses to cloud.";
-    console.error("syncExpensesToCloud exception:", err);
-    return { success: false, error: errorMsg };
-  }
+  return syncExpensesToCloudService(expenses);
 }
 
 const KNOWN_DEFAULT_CUSTOMERS = [
