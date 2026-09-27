@@ -10,9 +10,10 @@ import { useRealtimeSync, type RealtimePayloadInfo } from "@/lib/hooks/useRealti
 
 interface AdminOverviewLiveProps {
   initialData: OverviewStats;
+  view?: "overview" | "meter-readings";
 }
 
-export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProps) {
+export default function AdminOverviewLive({ initialData, view = "overview" }: AdminOverviewLiveProps) {
   const [data, setData] = useState<OverviewStats>(initialData);
   const [highlightedShiftId, setHighlightedShiftId] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
@@ -110,13 +111,13 @@ export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProp
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Top Banner & Quick Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              Sales & Shortages Audit
+              {view === "overview" ? "Station Overview" : "Meter Readings Audit"}
             </h1>
             {/* Live Status Badge */}
             <div
@@ -140,14 +141,16 @@ export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProp
             </div>
           </div>
           <p className="mt-1 text-sm text-zinc-400">
-            Real-time reconciliation of dispenser meter readings, cash collections, and shift variances.
+            {view === "overview"
+              ? "Live performance and cash reconciliation across your station."
+              : "Uploaded meter readings, shift reconciliation, liters dispensed, and cash totals."}
             <span suppressHydrationWarning className="ml-2 text-xs text-zinc-500 font-mono">
               Last update: {lastSyncTime}
             </span>
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        {view === "overview" && <div className="flex items-center gap-3">
           <Link
             href="/admin/workers"
             className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs font-bold text-amber-400 transition-all hover:bg-amber-500/20 shadow-md"
@@ -171,16 +174,20 @@ export default function AdminOverviewLive({ initialData }: AdminOverviewLiveProp
             </svg>
             <span>Check Tanks</span>
           </Link>
-        </div>
+        </div>}
       </div>
 
-      <AdminOverviewStats data={data} />
-
-      <AdminShiftReconciliations
-        shifts={data.recentShifts}
-        highlightedShiftId={highlightedShiftId}
-      />
-      <MeterReadingsHistory limit={20} />
+      {view === "overview" ? (
+        <AdminOverviewStats data={data} />
+      ) : (
+        <>
+          <AdminShiftReconciliations
+            shifts={data.recentShifts}
+            highlightedShiftId={highlightedShiftId}
+          />
+          <MeterReadingsHistory limit={100} />
+        </>
+      )}
     </div>
   );
 }

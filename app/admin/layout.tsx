@@ -41,12 +41,12 @@ export default async function AdminLayout({
       <AdminRealtimeSync />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="ml-0 flex-1 p-4 sm:p-6 lg:p-8 md:ml-64">
         {children}
       </main>
 
       {/* Admin Footer */}
-      <footer className="border-t border-zinc-900 bg-zinc-950/60 py-4 text-center text-xs text-zinc-600">
+      <footer className="ml-0 border-t border-zinc-900 bg-zinc-950/60 py-4 text-center text-xs text-zinc-600 md:ml-64">
         <p>Petrol Station OS • Station Owner Control Center • Role-Based Protected Environment</p>
       </footer>
     </div>
