@@ -215,7 +215,7 @@ export default function WorkerDashboardShell({
                 </section>
 
                 <DashboardStats />
-                <RecentEntries initialFilter="sale" showFilterTabs={false} />
+                <RecentEntries initialFilter="sale" showFilterTabs={false} userId={userId} />
               </>
             </div>
 
@@ -230,7 +230,7 @@ export default function WorkerDashboardShell({
             {activeView === "expenses" && (
               <>
                 <ExpenseForm />
-                <RecentEntries initialFilter="expense" showFilterTabs={false} />
+                <RecentEntries initialFilter="expense" showFilterTabs={false} userId={userId} />
               </>
             )}
 

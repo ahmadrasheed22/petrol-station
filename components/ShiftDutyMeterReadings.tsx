@@ -30,6 +30,8 @@ interface ShiftMeterDraft {
   openingReading: string;
   closingReading: string;
   pricePerLiter?: string;
+  meterLabel?: string;
+  fuelType?: string;
 }
 
 interface ShiftRecordWithMeterDraft extends ShiftRecord {
@@ -83,6 +85,7 @@ export default function ShiftDutyMeterReadings({
   const [pendingShift, setPendingShift] = useState<ShiftRecordWithMeterDraft | null>(null);
   const [endedShiftId, setEndedShiftId] = useState<number | null>(null);
   const [readingsDirty, setReadingsDirty] = useState(false);
+  const [selectedFuelType, setSelectedFuelType] = useState<string | null>(null);
 
   const liveActiveShift = useLiveQuery(
     async () => {
@@ -168,6 +171,9 @@ export default function ShiftDutyMeterReadings({
     const remaining = Object.keys(metersByFuelType).filter((fuelType) => !fuelTypeOrder.includes(fuelType));
     return [...ordered, ...remaining];
   }, [metersByFuelType]);
+  const activeFuelType = sortedFuelTypes.includes(selectedFuelType ?? "")
+    ? selectedFuelType
+    : sortedFuelTypes[0];
 
   const calculateDispensed = (opening: string, closing: string): number => {
     const o = parseFloat(opening) || 0;
@@ -190,6 +196,8 @@ export default function ShiftDutyMeterReadings({
         openingReading: reading?.openingReading || "",
         closingReading: reading?.closingReading || "",
         pricePerLiter: reading?.pricePerLiter || "",
+        meterLabel: reading?.meterLabel || meter.label || meter.meter_number,
+        fuelType: meter.fuel_type,
       };
     });
 
@@ -220,13 +228,16 @@ export default function ShiftDutyMeterReadings({
 
   const handlePriceChange = (meterId: string, value: string) => {
     setReadingsDirty(true);
-    setReadings((prev) => ({
-      ...prev,
-      [meterId]: {
-        ...prev[meterId],
-        pricePerLiter: value,
-      },
-    }));
+    const fuelType = meters.find((meter) => meter.id === meterId)?.fuel_type;
+    setReadings((prev) => {
+      const next = { ...prev };
+      meters.forEach((meter) => {
+        if (meter.id === meterId || meter.fuel_type === fuelType) {
+          next[meter.id] = { ...prev[meter.id], pricePerLiter: value };
+        }
+      });
+      return next;
+    });
   };
 
   const handleSaveProgress = async () => {
@@ -703,19 +714,60 @@ export default function ShiftDutyMeterReadings({
             </div>
           </div>
 
-          {sortedFuelTypes.map((fuelType) => (
-            <ShiftDutyFuelTypeSection
-              key={fuelType}
-              fuelType={fuelType}
-              meters={metersByFuelType[fuelType]}
-              readings={readings}
-              onOpeningChange={handleOpeningChange}
-              onClosingChange={handleClosingChange}
-              onPriceChange={handlePriceChange}
-              calculateDispensed={calculateDispensed}
-              calculateSaleAmount={calculateSaleAmount}
-            />
-          ))}
+          <div>
+            <div
+              className="flex gap-2 overflow-x-auto border-b border-zinc-800 pb-2"
+              role="tablist"
+              aria-label="Fuel type"
+            >
+              {sortedFuelTypes.map((fuelType) => {
+                const isSelected = activeFuelType === fuelType;
+                const activeTabClass = fuelType === "Petrol"
+                  ? "border-amber-400 bg-amber-500/10 text-amber-300"
+                  : fuelType === "Diesel"
+                    ? "border-rose-400 bg-rose-500/10 text-rose-300"
+                    : "border-cyan-400 bg-cyan-500/10 text-cyan-300";
+                return (
+                  <button
+                    key={fuelType}
+                    type="button"
+                    role="tab"
+                    id={`fuel-tab-${fuelType}`}
+                    aria-selected={isSelected}
+                    aria-controls={`fuel-panel-${fuelType}`}
+                    onClick={() => setSelectedFuelType(fuelType)}
+                    className={`shrink-0 rounded-t-lg border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${
+                      isSelected
+                        ? activeTabClass
+                        : "border-transparent text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                    }`}
+                  >
+                    {fuelType}
+                    <span className="ml-2 text-xs text-zinc-500">{metersByFuelType[fuelType].length}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {activeFuelType && (
+              <div
+                role="tabpanel"
+                id={`fuel-panel-${activeFuelType}`}
+                aria-labelledby={`fuel-tab-${activeFuelType}`}
+                className="pt-4"
+              >
+                <ShiftDutyFuelTypeSection
+                  fuelType={activeFuelType}
+                  meters={metersByFuelType[activeFuelType]}
+                  readings={readings}
+                  onOpeningChange={handleOpeningChange}
+                  onClosingChange={handleClosingChange}
+                  onPriceChange={handlePriceChange}
+                  calculateDispensed={calculateDispensed}
+                  calculateSaleAmount={calculateSaleAmount}
+                />
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 gap-3 border-t border-zinc-800/50 pt-4 sm:grid-cols-3">
             {sortedFuelTypes.map((fuelType) => {
