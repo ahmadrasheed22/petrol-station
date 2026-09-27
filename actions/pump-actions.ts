@@ -98,7 +98,8 @@ export async function deleteMachineMeter(id: string) {
 export async function getShiftMeterReadings(
   workerId?: string,
   limit: number = 100,
-  offset: number = 0
+  offset: number = 0,
+  recordedAt?: string
 ) {
   const supabase = await createClient();
 
@@ -122,6 +123,9 @@ export async function getShiftMeterReadings(
 
   if (workerId) {
     query = query.eq("worker_id", workerId);
+  }
+  if (recordedAt) {
+    query = query.eq("recorded_at", recordedAt);
   }
 
   const { data, error } = await query.range(offset, offset + limit - 1);
