@@ -1,17 +1,13 @@
 "use client";
 
-import { useState, useEffect, useId } from "react";
+import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
 import { addPendingSale } from "@/lib/services/offline-service";
 import { createClient } from "@/lib/supabase/client";
+import SalesFields, { type SalesProduct } from "@/components/SalesFields";
 
-interface Product {
-  id: string;
-  name: string;
-  current_sp?: number;
-  current_cp?: number;
-}
+type Product = SalesProduct;
 
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
@@ -30,12 +26,6 @@ export default function SalesForm() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const productInputId = useId();
-  const litersInputId = useId();
-  const priceInputId = useId();
-  const totalAmountInputId = useId();
-
-  // Safeguard against SSR hydration mismatch & load products from Supabase
   useEffect(() => {
     setMounted(true);
 
@@ -59,7 +49,6 @@ export default function SalesForm() {
             setPricePerLiterStr(data[0].current_sp.toString());
           }
         } else {
-          // If products table is empty in Supabase, auto-seed default products
           const { data: seededData, error: seedError } = await supabase
             .from("products")
             .upsert(DEFAULT_PRODUCTS, { onConflict: "id" })
@@ -88,7 +77,6 @@ export default function SalesForm() {
     fetchProducts();
   }, []);
 
-  // Live query for current active shift
   const activeShift = useLiveQuery(
     async () => {
       if (typeof window === "undefined") return null;
@@ -104,14 +92,14 @@ export default function SalesForm() {
 
   const handleProductChange = (newProductId: string) => {
     setProductId(newProductId);
-    const selected = products.find((p) => p.id === newProductId);
+    const selected = products.find((product) => product.id === newProductId);
     if (selected && selected.current_sp) {
       setPricePerLiterStr(selected.current_sp.toString());
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setSuccessMsg(null);
     setErrorMsg(null);
 
@@ -128,21 +116,19 @@ export default function SalesForm() {
       return;
     }
 
-    const selectedProduct = products.find((p) => p.id === productId);
+    const selectedProduct = products.find((product) => product.id === productId);
     const productName = selectedProduct ? selectedProduct.name : "Product";
 
     setIsSubmitting(true);
     try {
       await addPendingSale({
         shift_id: activeShift?.shift_id,
-        product_id: productId, // Sends actual UUID to Dexie & Supabase
+        product_id: productId,
         total_liters: liters,
         applied_sp: pricePerLiter,
       });
 
-      setSuccessMsg(
-        `Sale of ${liters}L (${productName}) saved to Dexie successfully!`
-      );
+      setSuccessMsg(`Sale of ${liters}L (${productName}) saved to Dexie successfully!`);
       setLitersStr("");
     } catch (err: unknown) {
       console.error("Error saving sale to Dexie:", err);
@@ -170,25 +156,13 @@ export default function SalesForm() {
         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4 mb-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
-                />
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Log Fuel Sale</h2>
-              <p className="text-xs text-zinc-400">
-                Record sale transaction directly to Dexie
-              </p>
+              <p className="text-xs text-zinc-400">Record sale transaction directly to Dexie</p>
             </div>
           </div>
 
@@ -199,14 +173,10 @@ export default function SalesForm() {
           )}
         </div>
 
-        {/* Feedback Messages */}
         {successMsg && (
           <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-400 flex items-center justify-between">
             <span>{successMsg}</span>
-            <button
-              onClick={() => setSuccessMsg(null)}
-              className="text-emerald-400 hover:text-emerald-200 text-sm font-bold ml-2 cursor-pointer"
-            >
+            <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200 text-sm font-bold ml-2 cursor-pointer">
               &times;
             </button>
           </div>
@@ -215,114 +185,24 @@ export default function SalesForm() {
         {errorMsg && (
           <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-400 flex items-center justify-between">
             <span>{errorMsg}</span>
-            <button
-              onClick={() => setErrorMsg(null)}
-              className="text-rose-400 hover:text-rose-200 text-sm font-bold ml-2 cursor-pointer"
-            >
+            <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-200 text-sm font-bold ml-2 cursor-pointer">
               &times;
             </button>
           </div>
         )}
 
-        {/* Form Inputs */}
-        <form id="sales-form" onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label
-              htmlFor={productInputId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Product
-            </label>
-            <select
-              id={productInputId}
-              name="product_id"
-              value={productId}
-              onChange={(e) => handleProductChange(e.target.value)}
-              disabled={isLoadingProducts || products.length === 0}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors disabled:opacity-50"
-            >
-              {isLoadingProducts ? (
-                <option value="">Loading products...</option>
-              ) : products.length === 0 ? (
-                <option value="">No products found in database</option>
-              ) : (
-                products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor={litersInputId}
-                className="block text-xs font-medium text-zinc-400 mb-1.5"
-              >
-                Liters
-              </label>
-              <input
-                id={litersInputId}
-                name="liters"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="0.00"
-                value={litersStr}
-                onChange={(e) => setLitersStr(e.target.value)}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors"
-                required
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor={priceInputId}
-                className="block text-xs font-medium text-zinc-400 mb-1.5"
-              >
-                Price per Liter
-              </label>
-              <input
-                id={priceInputId}
-                name="price_per_liter"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="0.00"
-                value={pricePerLiterStr}
-                onChange={(e) => setPricePerLiterStr(e.target.value)}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label
-              htmlFor={totalAmountInputId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Total Amount (Calculated)
-            </label>
-            <input
-              id={totalAmountInputId}
-              name="total_amount"
-              type="text"
-              readOnly
-              value={
-                totalAmount > 0
-                  ? `Rs. ${totalAmount.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`
-                  : "Rs. 0.00"
-              }
-              className="w-full rounded-xl border border-zinc-800/80 bg-zinc-900/80 px-3.5 py-2.5 text-sm font-semibold text-emerald-400 cursor-not-allowed select-none"
-            />
-          </div>
-        </form>
+        <SalesFields
+          products={products}
+          productId={productId}
+          litersStr={litersStr}
+          pricePerLiterStr={pricePerLiterStr}
+          isLoadingProducts={isLoadingProducts}
+          totalAmount={totalAmount}
+          onSubmit={handleSubmit}
+          onProductChange={handleProductChange}
+          onLitersChange={setLitersStr}
+          onPricePerLiterChange={setPricePerLiterStr}
+        />
       </div>
 
       <div>

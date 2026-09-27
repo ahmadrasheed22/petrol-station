@@ -1,17 +1,13 @@
 "use client";
 
-import { useState, useEffect, useId } from "react";
+import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline-db";
 import { addPendingLedgerTx } from "@/lib/services/offline-service";
 import { createClient } from "@/lib/supabase/client";
+import CreditSaleFields, { type CreditSaleProduct } from "@/components/CreditSaleFields";
 
-interface Product {
-  id: string;
-  name: string;
-  current_sp?: number;
-  current_cp?: number;
-}
+type Product = CreditSaleProduct;
 
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
@@ -32,11 +28,6 @@ export default function CreditSaleForm() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  const productSelectId = useId();
-  const litersInputId = useId();
-  const priceInputId = useId();
-  const amountInputId = useId();
 
   // Live query for active shift
   const activeShift = useLiveQuery(
@@ -98,6 +89,13 @@ export default function CreditSaleForm() {
     if (selected && selected.current_sp) {
       setPricePerLiterStr(selected.current_sp.toString());
     }
+  };
+
+  const handleToggleCustomAmount = () => {
+    if (!isCustomAmount) {
+      setManualAmountStr(calculatedTotal.toString());
+    }
+    setIsCustomAmount(!isCustomAmount);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -236,159 +234,24 @@ export default function CreditSaleForm() {
           </div>
         )}
 
-        {/* Form Inputs */}
-        <form id="credit-sale-form" onSubmit={handleSubmit} className="space-y-4">
-          {/* Customer Name Text Input (Fully Manual) */}
-          <div>
-            <label
-              htmlFor="customer_name"
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Customer Name (Manual Entry)
-            </label>
-            <input
-              id="customer_name"
-              name="customer_name"
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="e.g. Malik Transport, Aslam Rickshaw, Ch Tariq..."
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
-              required
-            />
-            <p className="text-[11px] text-zinc-500 mt-1">
-              Type any customer or driver name manually without dropdown restrictions.
-            </p>
-          </div>
-
-          {/* Product Dropdown */}
-          <div>
-            <label
-              htmlFor={productSelectId}
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Fuel Product
-            </label>
-            <select
-              id={productSelectId}
-              name="product_id"
-              value={selectedProductId}
-              onChange={(e) => handleProductChange(e.target.value)}
-              disabled={isLoadingProducts || products.length === 0}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors disabled:opacity-50"
-            >
-              {isLoadingProducts ? (
-                <option value="">Loading products...</option>
-              ) : (
-                products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.current_sp ? `(Standard: Rs. ${p.current_sp}/L)` : ""}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-
-          {/* Liters and Price Row (Manual Inputs just like ShiftDutyManager) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor={litersInputId}
-                className="block text-xs font-medium text-zinc-400 mb-1.5"
-              >
-                Liters Sold
-              </label>
-              <input
-                id={litersInputId}
-                name="liters"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="0.00"
-                value={litersStr}
-                onChange={(e) => setLitersStr(e.target.value)}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
-                required
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor={priceInputId}
-                className="block text-xs font-medium text-zinc-400 mb-1.5"
-              >
-                Price per Liter (Rs)
-              </label>
-              <input
-                id={priceInputId}
-                name="price_per_liter"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="0.00"
-                value={pricePerLiterStr}
-                onChange={(e) => setPricePerLiterStr(e.target.value)}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
-                required
-              />
-            </div>
-          </div>
-
-          {/* Total Amount Field */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label
-                htmlFor={amountInputId}
-                className="text-xs font-medium text-zinc-400"
-              >
-                Total Credit Amount (Rs)
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isCustomAmount) {
-                    setManualAmountStr(calculatedTotal.toString());
-                  }
-                  setIsCustomAmount(!isCustomAmount);
-                }}
-                className="text-xs text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
-              >
-                {isCustomAmount ? "Use Auto Calculated" : "Override Amount"}
-              </button>
-            </div>
-
-            {isCustomAmount ? (
-              <input
-                id={amountInputId}
-                name="amount"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="Enter manual credit amount"
-                value={manualAmountStr}
-                onChange={(e) => setManualAmountStr(e.target.value)}
-                className="w-full rounded-xl border border-indigo-500/40 bg-zinc-950 px-3.5 py-2.5 text-sm font-semibold text-indigo-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                required
-              />
-            ) : (
-              <input
-                id={amountInputId}
-                name="amount"
-                type="text"
-                readOnly
-                value={
-                  calculatedTotal > 0
-                    ? `Rs. ${calculatedTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    : "Rs. 0.00"
-                }
-                className="w-full rounded-xl border border-zinc-800/80 bg-zinc-900/80 px-3.5 py-2.5 text-sm font-semibold text-indigo-400 cursor-not-allowed select-none"
-              />
-            )}
-          </div>
-        </form>
+        <CreditSaleFields
+          products={products}
+          customerName={customerName}
+          selectedProductId={selectedProductId}
+          litersStr={litersStr}
+          pricePerLiterStr={pricePerLiterStr}
+          manualAmountStr={manualAmountStr}
+          isCustomAmount={isCustomAmount}
+          isLoadingProducts={isLoadingProducts}
+          calculatedTotal={calculatedTotal}
+          onSubmit={handleSubmit}
+          onCustomerNameChange={setCustomerName}
+          onProductChange={handleProductChange}
+          onLitersChange={setLitersStr}
+          onPricePerLiterChange={setPricePerLiterStr}
+          onManualAmountChange={setManualAmountStr}
+          onToggleCustomAmount={handleToggleCustomAmount}
+        />
       </div>
 
       {/* Submit Button */}
