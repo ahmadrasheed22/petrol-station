@@ -63,6 +63,16 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
       ),
     },
     {
+      label: "Tanker Arrivals",
+      sublabel: "Decanting & Audit",
+      href: "/admin/tanker-arrivals",
+      icon: (
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 17a2 2 0 104 0m5 0a2 2 0 104 0M5 7V4h8v3" />
+        </svg>
+      ),
+    },
+    {
       label: "Khata Ledger",
       sublabel: "Customer Udhar",
       href: "/khata",
@@ -114,9 +124,10 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
     "/admin/meter-readings": 1,
     "/admin/expenses": 2,
     "/admin/inventory": 3,
-    "/admin/workers": 4,
-    "/admin/pump-config": 5,
-    "/khata": 6,
+    "/admin/tanker-arrivals": 4,
+    "/admin/workers": 5,
+    "/admin/pump-config": 6,
+    "/khata": 7,
   };
   const orderedNavLinks = [...navLinks].sort(
     (first, second) => navigationOrder[first.href] - navigationOrder[second.href]
