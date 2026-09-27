@@ -13,10 +13,12 @@ import {
   updateMachineMeter,
   deleteMachineMeter,
 } from "@/actions/pump-actions";
-
-type Tank = { id: string; tank_number: string; fuel_type: string; capacity_liters: number; current_liters: number };
-type Machine = { id: string; machine_number: string; fuel_type: string; tank_id: string | null; status: string };
-type Meter = { id: string; machine_id: string; meter_number: string; label: string; initial_reading: number; current_reading: number; fuel_type: string; status: string };
+import PumpConfigEditForms, {
+  type Machine,
+  type Meter,
+  type PumpConfigFormData,
+  type Tank,
+} from "@/components/admin/PumpConfigEditForms";
 
 interface Props {
   initialData: {
@@ -34,7 +36,7 @@ export default function PumpConfigLive({ initialData }: Props) {
   const [editingTank, setEditingTank] = useState<Tank | null>(null);
   const [editingMachine, setEditingMachine] = useState<Machine | null>(null);
   const [editingMeter, setEditingMeter] = useState<Meter | null>(null);
-  const [editFormData, setEditFormData] = useState<Record<string, any>>({});
+  const [editFormData, setEditFormData] = useState<PumpConfigFormData>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -273,83 +275,21 @@ export default function PumpConfigLive({ initialData }: Props) {
 
       {error && <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-medium">{error}</div>}
 
-      {/* Edit Forms */}
-      {editingTank && (
-        <form onSubmit={handleUpdateTank} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4 max-w-xl mx-auto">
-          <h3 className="font-bold text-white border-b border-zinc-800 pb-2">Edit Tank</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <input name="tank_number" defaultValue={editFormData.tank_number} placeholder="Tank Number" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <select name="fuel_type" defaultValue={editFormData.fuel_type} required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="Petrol">Petrol</option>
-              <option value="Diesel">Diesel</option>
-              <option value="Hi-Octane">Hi-Octane</option>
-            </select>
-            <input name="capacity_liters" type="number" defaultValue={editFormData.capacity_liters} placeholder="Capacity (Liters)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <input name="current_liters" type="number" defaultValue={editFormData.current_liters} placeholder="Current (Liters)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-          </div>
-          <div className="flex gap-2">
-            <button disabled={isLoading} type="submit" className="flex-1 bg-amber-500 text-zinc-950 font-bold rounded-lg p-2 text-sm hover:bg-amber-400 disabled:opacity-50">Update Tank</button>
-            <button type="button" onClick={() => { setEditingTank(null); setEditFormData({}); }} className="px-4 bg-zinc-800 text-white rounded-lg p-2 text-sm hover:bg-zinc-700">Cancel</button>
-          </div>
-        </form>
-      )}
-
-      {editingMachine && (
-        <form onSubmit={handleUpdateMachine} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4 max-w-xl mx-auto">
-          <h3 className="font-bold text-white border-b border-zinc-800 pb-2">Edit Machine</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <input name="machine_number" defaultValue={editFormData.machine_number} placeholder="Machine Number" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <select name="fuel_type" defaultValue={editFormData.fuel_type} required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="Petrol">Petrol</option>
-              <option value="Diesel">Diesel</option>
-              <option value="Hi-Octane">Hi-Octane</option>
-            </select>
-            <select name="tank_id" defaultValue={editFormData.tank_id || ""} required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="">Select Tank</option>
-              {tanks.map(t => <option key={t.id} value={t.id}>{t.tank_number} ({t.fuel_type})</option>)}
-            </select>
-            <select name="status" defaultValue={editFormData.status} required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="maintenance">Maintenance</option>
-            </select>
-          </div>
-          <div className="flex gap-2">
-            <button disabled={isLoading} type="submit" className="flex-1 bg-amber-500 text-zinc-950 font-bold rounded-lg p-2 text-sm hover:bg-amber-400 disabled:opacity-50">Update Machine</button>
-            <button type="button" onClick={() => { setEditingMachine(null); setEditFormData({}); }} className="px-4 bg-zinc-800 text-white rounded-lg p-2 text-sm hover:bg-zinc-700">Cancel</button>
-          </div>
-        </form>
-      )}
-
-      {editingMeter && (
-        <form onSubmit={handleUpdateMeter} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4 max-w-xl mx-auto">
-          <h3 className="font-bold text-white border-b border-zinc-800 pb-2">Edit Meter</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <input name="meter_number" defaultValue={editFormData.meter_number} placeholder="Meter Number" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <input name="label" defaultValue={editFormData.label} placeholder="Label" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <select name="machine_id" defaultValue={editFormData.machine_id} required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="">Select Machine</option>
-              {machines.map(m => <option key={m.id} value={m.id}>{m.machine_number} ({m.fuel_type})</option>)}
-            </select>
-            <select name="fuel_type" defaultValue={editFormData.fuel_type} required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="Petrol">Petrol</option>
-              <option value="Diesel">Diesel</option>
-              <option value="Hi-Octane">Hi-Octane</option>
-            </select>
-            <input name="initial_reading" type="number" step="0.1" defaultValue={editFormData.initial_reading} placeholder="Initial Reading" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <input name="current_reading" type="number" step="0.1" defaultValue={editFormData.current_reading} placeholder="Current Reading" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-            <select name="status" defaultValue={editFormData.status} required className="col-span-2 bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="maintenance">Maintenance</option>
-            </select>
-          </div>
-          <div className="flex gap-2">
-            <button disabled={isLoading} type="submit" className="flex-1 bg-amber-500 text-zinc-950 font-bold rounded-lg p-2 text-sm hover:bg-amber-400 disabled:opacity-50">Update Meter</button>
-            <button type="button" onClick={() => { setEditingMeter(null); setEditFormData({}); }} className="px-4 bg-zinc-800 text-white rounded-lg p-2 text-sm hover:bg-zinc-700">Cancel</button>
-          </div>
-        </form>
-      )}
+      <PumpConfigEditForms
+        editingTank={editingTank}
+        editingMachine={editingMachine}
+        editingMeter={editingMeter}
+        editFormData={editFormData}
+        tanks={tanks}
+        machines={machines}
+        isLoading={isLoading}
+        onUpdateTank={handleUpdateTank}
+        onUpdateMachine={handleUpdateMachine}
+        onUpdateMeter={handleUpdateMeter}
+        onCancelTank={() => { setEditingTank(null); setEditFormData({}); }}
+        onCancelMachine={() => { setEditingMachine(null); setEditFormData({}); }}
+        onCancelMeter={() => { setEditingMeter(null); setEditFormData({}); }}
+      />
 
       {/* Tabs */}
       <div className="flex space-x-2 border-b border-zinc-800 pb-2">
