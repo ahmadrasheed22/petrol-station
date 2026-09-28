@@ -42,6 +42,36 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
   }
 }
 
+export async function reconcileOfflineCustomersWithCloud(
+  cloudCustomers: Array<{ id: string; total_balance: number }>
+): Promise<void> {
+  const settledCustomerIds = new Set(
+    cloudCustomers
+      .filter((customer) => customer.total_balance <= 0)
+      .map((customer) => customer.id)
+  );
+  if (settledCustomerIds.size === 0) return;
+
+  const localTransactions = await db.pendingLedgerTransactions.toArray();
+  const protectedCustomerIds = new Set(
+    localTransactions
+      .filter((transaction) =>
+        transaction.customer_id &&
+        ["draft", "pending", "failed"].includes(transaction.sync_status)
+      )
+      .map((transaction) => transaction.customer_id as string)
+  );
+
+  const customerIdsToReset = Array.from(settledCustomerIds).filter(
+    (customerId) => !protectedCustomerIds.has(customerId)
+  );
+  if (customerIdsToReset.length === 0) return;
+
+  await db.customers.bulkUpdate(
+    customerIdsToReset.map((id) => ({ key: id, changes: { total_balance: 0 } }))
+  );
+}
+
 export async function addPendingLedgerTx(txData: {
   customer_id?: string;
   customer_name: string;

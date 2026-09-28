@@ -12,8 +12,9 @@ import {
   type CustomerLedgerEntry,
   type WorkerPendingCollection,
 } from "@/actions/khata-actions";
-import { db, type CustomerRecord, type PendingLedgerTransaction } from "@/lib/offline-db";
+import { db, type PendingLedgerTransaction } from "@/lib/offline-db";
 import { useRealtimeSync } from "@/lib/hooks/useRealtimeSync";
+import { reconcileOfflineCustomersWithCloud } from "@/lib/services/offline-ledger-service";
 import { formatSouthAsianAmountInWords } from "@/lib/utils/number-to-words";
 
 function getCustomerKey(name: string, phoneNumber: string): string {
@@ -64,7 +65,9 @@ export default function WorkerCustomerLedger({
       setError(directoryResult.error || "Unable to load the customer directory.");
     } else {
       setError(null);
-      setCustomers(directoryResult.customers || []);
+      const cloudCustomers = directoryResult.customers || [];
+      await reconcileOfflineCustomersWithCloud(cloudCustomers);
+      setCustomers(cloudCustomers);
     }
 
     if (pendingResult.success) {
@@ -179,7 +182,6 @@ export default function WorkerCustomerLedger({
       name: string;
       phoneNumber: string;
       transactions: PendingLedgerTransaction[];
-      customers: Map<string, CustomerRecord>;
     }>();
 
     for (const transaction of offlineDirectory?.ledgerTransactions || []) {
@@ -193,10 +195,8 @@ export default function WorkerCustomerLedger({
         name,
         phoneNumber,
         transactions: [],
-        customers: new Map<string, CustomerRecord>(),
       };
       group.transactions.push(transaction);
-      if (localCustomer) group.customers.set(localCustomer.id, localCustomer);
       localGroups.set(key, group);
     }
 
@@ -231,15 +231,14 @@ export default function WorkerCustomerLedger({
         continue;
       }
 
-      const localCustomers = Array.from(group.customers.values());
-      const totalBalance = localCustomers.length > 0
-        ? localCustomers.reduce((total, localCustomer) => total + localCustomer.total_balance, 0)
-        : group.transactions.reduce(
-            (total, transaction) => total + (transaction.transaction_type === "credit" ? transaction.amount : -transaction.amount),
-            0
-          );
+      const totalBalance = group.transactions.reduce(
+        (total, transaction) => transaction.status === "SETTLED"
+          ? total
+          : total + (transaction.transaction_type === "credit" ? transaction.amount : -transaction.amount),
+        0
+      );
       merged.set(key, {
-        id: localCustomers[0]?.id || group.transactions[0].customer_id || `offline:${key}`,
+        id: group.transactions[0].customer_id || `offline:${key}`,
         name: group.name,
         phone_number: group.phoneNumber,
         total_balance: totalBalance,
