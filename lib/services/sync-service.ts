@@ -172,6 +172,9 @@ export async function processOfflineQueue(): Promise<ProcessQueueResult> {
     };
   } finally {
     isSyncing = false;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("offline-sync-complete"));
+    }
     if (pendingSyncRequest) {
       pendingSyncRequest = false;
       setTimeout(() => {

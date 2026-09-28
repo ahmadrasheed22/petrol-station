@@ -11,7 +11,7 @@ import ShiftDutyMeterReadings from "@/components/ShiftDutyMeterReadings";
 import SyncIndicator from "@/components/SyncIndicator";
 import TankStatus from "@/components/TankStatus";
 import CreditSaleForm from "@/components/CreditSaleForm";
-import CustomerBalances from "@/components/CustomerBalances";
+import WorkerCustomerLedger from "@/components/WorkerCustomerLedger";
 import { db } from "@/lib/offline-db";
 
 export type WorkerView = "duty" | "home" | "expenses" | "khata" | "inventory";
@@ -38,6 +38,7 @@ export default function WorkerDashboardShell({
   isOwnerPreview?: boolean;
 }) {
   const [activeView, setActiveView] = useState<WorkerView>("duty");
+  const [directoryRefreshKey, setDirectoryRefreshKey] = useState(0);
   const hasActiveDuty = useLiveQuery(
     async () => Boolean(await db.shifts.where("status").equals("active").first()),
     [],
@@ -236,8 +237,10 @@ export default function WorkerDashboardShell({
 
             {visibleView === "khata" && (
               <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
-                <CreditSaleForm />
-                <CustomerBalances />
+                <CreditSaleForm
+                  onSaleRecorded={() => setDirectoryRefreshKey((key) => key + 1)}
+                />
+                <WorkerCustomerLedger refreshKey={directoryRefreshKey} />
               </div>
             )}
 
