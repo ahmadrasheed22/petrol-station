@@ -18,6 +18,7 @@ import ShiftDutyFuelTypeSection, {
   type MeterReading,
 } from "@/components/ShiftDutyFuelTypeSection";
 import ShiftDutyMeterHeader from "@/components/ShiftDutyMeterHeader";
+import { triggerAutoSyncIfOnline } from "@/lib/services/sync-service";
 
 interface Machine {
   id: string;
@@ -315,16 +316,40 @@ export default function ShiftDutyMeterReadings({
     setIsProcessing(true);
     try {
       const newShift = await startShift(userId, { worker_name: workerName, deferSync: true });
+      await db.shifts.update(newShift.id!, { sync_status: "pending" });
       setPendingShift(newShift);
       setEndedShiftId(null);
       setReadingsDirty(false);
       hydrateOpeningReadings();
+
+      let syncedImmediately = false;
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        try {
+          const result = await syncShiftsToCloud([{
+            shift_id: newShift.shift_id,
+            user_id: newShift.user_id,
+            worker_name: newShift.worker_name,
+            start_time: newShift.start_time,
+            created_at: newShift.created_at,
+          }]);
+          if (result.success) {
+            await db.shifts.update(newShift.id!, { sync_status: "synced" });
+            syncedImmediately = true;
+          } else {
+            console.warn("Duty start saved locally; cloud sync will retry:", result.error);
+          }
+        } catch (syncError) {
+          console.warn("Duty start saved locally; cloud sync will retry:", syncError);
+        }
+      }
+      if (!syncedImmediately) triggerAutoSyncIfOnline();
+
       setMessage({
         type: "success",
         text: `Duty started at ${new Date(newShift.start_time).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
-        })}. Meter inputs are now unlocked.`,
+        })}. Meter inputs are now unlocked.${syncedImmediately ? " Owner notified." : " Cloud sync is queued."}`,
       });
     } catch (err) {
       console.error("Failed to start duty:", err);
