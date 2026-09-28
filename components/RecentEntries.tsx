@@ -120,7 +120,8 @@ export default function RecentEntries({
     (expenses || []).forEach((exp: PendingExpense) => {
       if (!exp.id) return;
       const isToday = new Date(exp.created_at).toDateString() === todayStr;
-      if (isToday) {
+      const belongsToActiveShift = exp.shift_id === activeShift?.shift_id;
+      if (belongsToActiveShift || (!activeShift && isToday)) {
         list.push({
           uid: `exp-${exp.id}`,
           originalId: exp.id,
@@ -217,7 +218,6 @@ export default function RecentEntries({
     setUploadingExpenseIds((ids) => new Set(ids).add(expenseId));
 
     try {
-      await db.pendingExpenses.delete(expenseId);
       if (expense.shift_id) {
         const shift = await db.shifts.where("shift_id").equals(expense.shift_id).first();
         if (shift) {
@@ -240,8 +240,8 @@ export default function RecentEntries({
         created_at: expense.created_at,
       }]);
       if (!result.success) throw new Error(result.error || "Expense upload failed.");
+      await db.pendingExpenses.update(expenseId, { sync_status: "synced" });
     } catch (error) {
-      await db.pendingExpenses.put(expense);
       setUploadError(error instanceof Error ? error.message : "Failed to upload expense.");
     } finally {
       setUploadingExpenseIds((ids) => {

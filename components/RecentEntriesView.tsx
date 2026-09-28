@@ -100,7 +100,7 @@ export default function RecentEntriesView({
             No {filter === "sale" ? "fuel sales" : "expenses"} logged today
           </p>
           <p className="text-xs text-zinc-500">
-            Saved expenses and fuel sales will appear here until uploaded or cleared at duty end.
+            Saved expenses and fuel sales will remain here until duty ends.
           </p>
         </div>
       ) : (
@@ -145,6 +145,11 @@ export default function RecentEntriesView({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-white">{entry.title}</span>
+                      {entry.type === "expense" && entry.syncStatus === "synced" && (
+                        <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+                          Uploaded
+                        </span>
+                      )}
                       <span className="text-[11px] text-zinc-500">{timeStr}</span>
                     </div>
                     <p className="text-xs text-zinc-400">{entry.subtitle}</p>
