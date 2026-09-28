@@ -218,8 +218,34 @@ export default function MeterReadingsHistory({
             id={`fuel-panel-${activeFuelTypeIndex}`}
             role="tabpanel"
             aria-labelledby={`fuel-tab-${activeFuelTypeIndex}`}
-            className="space-y-3 pt-4"
+            className="space-y-3 pt-3"
           >
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                {activeFuelType} Totals
+              </h5>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
+                  <p className="text-xs text-zinc-500">Total Liters Dispensed</p>
+                  <p className="mt-0.5 text-base font-bold text-white">
+                    {activeFuelReadings.reduce((total, reading) => total + Number(reading.liters_dispensed || 0), 0).toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} L
+                  </p>
+                </div>
+                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
+                  <p className="text-xs text-zinc-500">Total Amount (Rs)</p>
+                  <p className="mt-0.5 text-base font-bold text-emerald-300">
+                    Rs. {activeFuelReadings.reduce((total, reading) => total + Number(reading.total_amount || 0), 0).toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div
               className={`rounded-lg border px-4 py-3 ${
                 activeFuelType === "Petrol"
@@ -252,7 +278,7 @@ export default function MeterReadingsHistory({
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {activeFuelReadings.length === 0 ? (
                 <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-4 text-sm text-zinc-500">
                   No {activeFuelType} readings in this window.
@@ -264,106 +290,51 @@ export default function MeterReadingsHistory({
                 const time = formatTime(reading.recorded_at);
 
                 return (
-                  <article key={reading.id} className="rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-4">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">Worker</p>
-                          <p className="text-xl font-semibold text-white">{reading.profiles.name}</p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-4 text-sm">
-                          <div className="rounded-xl border border-zinc-700/60 bg-zinc-950/50 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Date</p>
-                            <p className="text-lg font-bold text-zinc-100">{date}</p>
-                          </div>
-                          <div className="rounded-xl border border-zinc-700/60 bg-zinc-950/50 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Time</p>
-                            <p className="font-mono text-lg font-semibold text-zinc-100">{time}</p>
-                          </div>
-                        </div>
-
-                        <div className="text-xs text-zinc-400">
-                          Meter {reading.machine_meters.label} <span className="text-zinc-600">({reading.machine_meters.meter_number})</span>
-                        </div>
+                  <article key={reading.id} className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-3">
+                    <div className="grid grid-cols-2 items-center gap-x-3 gap-y-2 sm:grid-cols-4 2xl:grid-cols-8">
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Worker</p>
+                        <p className="truncate text-sm font-semibold text-white">{reading.profiles.name}</p>
                       </div>
-
-                      <div className="flex flex-col items-start gap-2 md:items-end">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                            reading.machine_meters.fuel_type === "Petrol"
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                              : reading.machine_meters.fuel_type === "Diesel"
-                              ? "bg-red-500/10 text-red-400 border-red-500/20"
-                              : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
-                          }`}
-                        >
-                          {reading.machine_meters.fuel_type}
-                        </span>
-                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-right">
-                          <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-300/80">Liters Dispensed</p>
-                          <p className="text-xl font-bold text-emerald-300">
-                            {reading.liters_dispensed.toFixed(2)}L
-                          </p>
-                        </div>
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Date / Time</p>
+                        <p className="truncate font-mono text-xs text-zinc-200">{date} {time}</p>
                       </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                      <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Opening</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">
-                          {reading.opening_reading.toFixed(2)}
-                        </div>
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Nozzle / Fuel</p>
+                        <p className="truncate text-sm text-zinc-200">
+                          {reading.machine_meters.label} <span className="text-zinc-500">({reading.machine_meters.meter_number})</span>
+                        </p>
+                        <p className="truncate text-xs text-zinc-400">{reading.machine_meters.fuel_type}</p>
                       </div>
-                      <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Closing</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">
-                          {reading.closing_reading.toFixed(2)}
-                        </div>
+                      <div>
+                        <p className="text-xs text-zinc-500">Opening</p>
+                        <p className="font-mono text-sm font-medium text-zinc-100">{reading.opening_reading.toFixed(2)}</p>
                       </div>
-                      <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Price / Liter</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">
+                      <div>
+                        <p className="text-xs text-zinc-500">Closing</p>
+                        <p className="font-mono text-sm font-medium text-zinc-100">{reading.closing_reading.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500">Price / Liter</p>
+                        <p className="truncate font-mono text-sm text-zinc-100">
                           Rs. {Number(reading.price_per_liter || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })}
-                        </div>
+                        </p>
                       </div>
-                      <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
-                        <span className="text-emerald-300/80 text-[11px] uppercase tracking-[0.18em]">Total Amount</span>
-                        <div className="font-mono text-xl font-bold text-emerald-300">
+                      <div>
+                        <p className="text-xs text-zinc-500">Liters</p>
+                        <p className="font-mono text-sm font-semibold text-emerald-300">{reading.liters_dispensed.toFixed(2)} L</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500">Amount</p>
+                        <p className="truncate font-mono text-sm font-semibold text-emerald-300">
                           Rs. {Number(reading.total_amount || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })}
-                        </div>
+                        </p>
                       </div>
                     </div>
                   </article>
                 );
               })}
-            </div>
-
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-              <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                {activeFuelType} Totals
-              </h5>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Liters Dispensed</p>
-                  <p className="mt-1 text-lg font-bold text-white">
-                    {activeFuelReadings.reduce((total, reading) => total + Number(reading.liters_dispensed || 0), 0).toLocaleString("en-PK", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })} L
-                  </p>
-                </div>
-                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Amount (Rs)</p>
-                  <p className="mt-1 text-lg font-bold text-emerald-300">
-                    Rs. {activeFuelReadings.reduce((total, reading) => total + Number(reading.total_amount || 0), 0).toLocaleString("en-PK", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
-                </div>
-              </div>
             </div>
           </section>
         )}
