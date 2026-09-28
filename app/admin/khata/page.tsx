@@ -1,5 +1,6 @@
 import { getAdminKhataOverview } from "@/actions/khata-actions";
 import KhataApprovalQueue from "@/components/admin/KhataApprovalQueue";
+import { formatSouthAsianAmountInWords } from "@/lib/utils/number-to-words";
 
 function formatDate(value: string): string {
   return value ? new Date(value).toLocaleDateString() : "No activity";
@@ -23,6 +24,7 @@ export default async function AdminKhataPage() {
       <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-6 shadow-xl">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Total Outstanding Udhar</p>
         <p className="mt-2 text-4xl font-black tracking-tight text-white">Rs. {overview.total_outstanding.toLocaleString()}</p>
+        <p className="mt-1 text-sm text-zinc-400">{formatSouthAsianAmountInWords(overview.total_outstanding)}</p>
         <p className="mt-2 text-xs text-zinc-400">Across {overview.customers.length} customers with cloud ledger activity</p>
       </div>
 

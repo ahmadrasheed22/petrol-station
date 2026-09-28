@@ -6,11 +6,15 @@ import {
   getCustomerDirectory,
   getCustomerLedgerById,
   getCustomerLedgerByName,
+  getWorkerPendingCollections,
   markLedgerPaymentReceived,
   type CustomerDirectoryEntry,
   type CustomerLedgerEntry,
+  type WorkerPendingCollection,
 } from "@/actions/khata-actions";
 import { db, type CustomerRecord, type PendingLedgerTransaction } from "@/lib/offline-db";
+import { useRealtimeSync } from "@/lib/hooks/useRealtimeSync";
+import { formatSouthAsianAmountInWords } from "@/lib/utils/number-to-words";
 
 function getCustomerKey(name: string, phoneNumber: string): string {
   const normalizedPhone = phoneNumber.trim();
@@ -26,6 +30,8 @@ export default function WorkerCustomerLedger({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [customers, setCustomers] = useState<CustomerDirectoryEntry[]>([]);
+  const [pendingCollections, setPendingCollections] = useState<WorkerPendingCollection[]>([]);
+  const [directoryTab, setDirectoryTab] = useState<"all" | "pending">("all");
   const [customer, setCustomer] = useState<CustomerDirectoryEntry | null>(null);
   const [entries, setEntries] = useState<CustomerLedgerEntry[]>([]);
   const [totalLiters, setTotalLiters] = useState<number | null>(null);
@@ -49,23 +55,33 @@ export default function WorkerCustomerLedger({
     { offlineCustomers: [], ledgerTransactions: [] }
   );
 
-  const refreshDirectory = useCallback(() => {
-    void getCustomerDirectory()
-      .then((result) => {
-        if (!result.success) {
-          setError(result.error || "Unable to load the customer directory.");
-          return;
-        }
-        setError(null);
-        setCustomers(result.customers || []);
-      })
-      .catch(() => setError("Unable to load the customer directory."))
-      .finally(() => setIsLoadingDirectory(false));
+  const refreshDirectory = useCallback(async () => {
+    const [directoryResult, pendingResult] = await Promise.all([
+      getCustomerDirectory(),
+      getWorkerPendingCollections(),
+    ]);
+
+    if (!directoryResult.success) {
+      setError(directoryResult.error || "Unable to load the customer directory.");
+    } else {
+      setError(null);
+      setCustomers(directoryResult.customers || []);
+    }
+
+    if (pendingResult.success) {
+      setPendingCollections(pendingResult.entries || []);
+    }
+    setIsLoadingDirectory(false);
   }, []);
 
   useEffect(() => {
     void refreshDirectory();
   }, [refreshDirectory, refreshKey]);
+
+  useRealtimeSync({
+    tables: ["ledger_transactions"],
+    onPayload: () => void refreshDirectory(),
+  });
 
   async function openCustomerById(customerId: string) {
     const targetCustomer = customers.find((item) => item.id === customerId) || null;
@@ -255,6 +271,7 @@ export default function WorkerCustomerLedger({
             }
           : entry
       ));
+          void refreshDirectory();
       setUpdatingId(null);
     });
   }
@@ -263,6 +280,10 @@ export default function WorkerCustomerLedger({
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.name.toLocaleLowerCase().includes(query) ||
       item.phone_number.toLocaleLowerCase().includes(query);
+  });
+  const filteredPendingCollections = pendingCollections.filter((item) => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    return !query || item.customer_name.toLocaleLowerCase().includes(query);
   });
 
   return (
@@ -295,16 +316,22 @@ export default function WorkerCustomerLedger({
       {error && <p role="alert" className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
       {!customer && (
-        <div className="mb-4">
-          <label className="sr-only" htmlFor="ledger-customer-search">Search customer name or phone</label>
-          <input
-            id="ledger-customer-search"
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search name or phone number"
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-          />
+        <div>
+          <div className="mb-4 flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+            <button type="button" onClick={() => setDirectoryTab("all")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}>All Customers</button>
+            <button type="button" onClick={() => setDirectoryTab("pending")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "pending" ? "bg-amber-500/15 text-amber-200" : "text-zinc-400 hover:text-white"}`}>Pending Approvals ({pendingCollections.length})</button>
+          </div>
+          <div className="mb-4">
+            <label className="sr-only" htmlFor="ledger-customer-search">Search customer name or phone</label>
+            <input
+              id="ledger-customer-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search name or phone number"
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+            />
+          </div>
         </div>
       )}
 
@@ -334,6 +361,7 @@ export default function WorkerCustomerLedger({
                   <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
                     <p className="text-[10px] uppercase text-zinc-400">Amount Due</p>
                     <p className="mt-1 text-lg font-bold text-amber-300">Rs. {customer.total_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p className="mt-1 text-[11px] text-zinc-400">{formatSouthAsianAmountInWords(customer.total_balance)}</p>
                   </div>
                 </div>
               </div>
@@ -397,7 +425,24 @@ export default function WorkerCustomerLedger({
         </div>
       )}
 
-      {!customer && (isLoadingDirectory ? (
+      {!customer && (directoryTab === "pending" ? (
+        filteredPendingCollections.length === 0 ? (
+          <p className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-5 text-center text-sm text-zinc-400">No payments are waiting for owner approval.</p>
+        ) : (
+          <div className="mt-5 overflow-hidden rounded-xl border border-amber-500/20 bg-zinc-950/40">
+            <ul className="divide-y divide-zinc-800/80">
+              {filteredPendingCollections.map((item) => (
+                <li key={item.id}>
+                  <button type="button" onClick={() => void openCustomerById(item.customer_id)} className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-zinc-800/50">
+                    <span className="min-w-0"><span className="block truncate font-semibold text-white">{item.customer_name}</span><span className="mt-1 block text-xs text-zinc-500">{new Date(item.created_at).toLocaleString()}</span></span>
+                    <span className="whitespace-nowrap text-sm font-semibold text-amber-300">Rs. {item.amount.toLocaleString()}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      ) : isLoadingDirectory ? (
         <div className="mt-5 animate-pulse space-y-3" aria-label="Loading customer directory">
           <div className="h-16 rounded-xl bg-zinc-800/70" />
           <div className="h-16 rounded-xl bg-zinc-800/50" />

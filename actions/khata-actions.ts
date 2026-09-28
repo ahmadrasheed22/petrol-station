@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
+import { revalidatePath } from "next/cache";
 
 export interface CustomerLedgerEntry {
   id: string;
@@ -263,6 +264,14 @@ export interface PendingApprovalEntry {
   received_by_worker_name: string;
 }
 
+export interface WorkerPendingCollection {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  created_at: string;
+}
+
 export interface AdminKhataOverview {
   total_outstanding: number;
   customers: CustomerDirectoryEntry[];
@@ -289,13 +298,12 @@ export async function getAdminKhataOverview(): Promise<{
       supabase
         .from("ledger_transactions")
         .select(`
-          id, customer_name, amount, created_at,
+          id, customer_id, customer_name, amount, created_at, status,
           customer:customers(name),
           issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
           receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
         `)
         .eq("status", "PENDING_APPROVAL")
-        .eq("transaction_type", "payment")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -332,6 +340,38 @@ export async function getAdminKhataOverview(): Promise<{
   };
 }
 
+export async function getWorkerPendingCollections(): Promise<{
+  success: boolean;
+  error?: string;
+  entries?: WorkerPendingCollection[];
+}> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth || auth.profile.role !== "worker") {
+    return { success: false, error: "Only authenticated workers can view pending collections." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ledger_transactions")
+    .select("id, customer_id, customer_name, amount, created_at, status, customer:customers(name)")
+    .eq("received_by_worker", auth.profile.id)
+    .eq("status", "PENDING_APPROVAL")
+    .order("created_at", { ascending: false });
+
+  if (error) return { success: false, error: error.message };
+
+  return {
+    success: true,
+    entries: (data || []).map((row) => ({
+      id: row.id,
+      customer_id: row.customer_id,
+      customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
+      amount: Number(row.amount) || 0,
+      created_at: row.created_at,
+    })),
+  };
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
@@ -360,6 +400,8 @@ export async function updateLedgerApproval(
 
   if (error) return { success: false, error: error.message };
   if (!data) return { success: false, error: "This payment is no longer pending. Refresh the queue." };
+  revalidatePath("/admin/khata");
+  revalidatePath("/khata");
   return { success: true };
 }
 
@@ -384,5 +426,7 @@ export async function bulkApproveLedgerPayments(
     .select("id");
 
   if (error) return { success: false, error: error.message };
+  revalidatePath("/admin/khata");
+  revalidatePath("/khata");
   return { success: true, settledCount: data?.length || 0 };
 }
