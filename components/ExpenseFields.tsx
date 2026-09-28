@@ -7,6 +7,8 @@ export const EXPENSE_CATEGORIES = [
   "Guest/Hospitality",
   "Utility Bills",
   "Miscellaneous",
+  "Worker Expense",
+  "Owner Expense",
 ];
 
 interface ExpenseFieldsProps {

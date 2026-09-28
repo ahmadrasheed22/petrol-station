@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type PendingExpense } from "@/lib/offline-db";
-import { addPendingExpense, updatePendingExpense } from "@/lib/services/offline-service";
+import { addPendingExpense } from "@/lib/services/offline-service";
 import { syncExpensesToCloud, syncShiftsToCloud } from "@/actions/db-actions";
 import ExpenseFields, { EXPENSE_CATEGORIES } from "@/components/ExpenseFields";
 
@@ -51,36 +51,8 @@ export default function ExpenseForm() {
     return true;
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!validateExpense()) return;
-
-    setIsSubmitting(true);
-    try {
-      const expense = {
-        shift_id: activeShift?.shift_id,
-        amount,
-        category,
-        description: description.trim() || undefined,
-      };
-
-      if (savedExpenseId !== null) {
-        await updatePendingExpense(savedExpenseId, expense);
-      } else {
-        const id = await addPendingExpense(expense);
-        setSavedExpenseId(id);
-      }
-
-      setSuccessMsg("Expense draft saved locally. Upload it to send it to the owner.");
-    } catch (err: unknown) {
-      console.error("Error saving expense to Dexie:", err);
-      setErrorMsg("Failed to save expense record locally.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleUpload = async () => {
     if (!validateExpense()) return;
 
     setIsSubmitting(true);
@@ -165,7 +137,7 @@ export default function ExpenseForm() {
             <div>
               <h2 className="text-lg font-bold text-white">Log Expense</h2>
               <p className="text-xs text-zinc-400">
-                Save expenses locally or upload them to the owner
+                Upload an expense to the owner
               </p>
             </div>
           </div>
@@ -228,7 +200,7 @@ export default function ExpenseForm() {
           description={description}
           hasActiveDuty={hasActiveDuty}
           isSubmitting={isSubmitting}
-          onSubmit={handleSave}
+          onSubmit={handleUpload}
           onCategoryChange={setCategory}
           onAmountChange={setAmountStr}
           onDescriptionChange={setDescription}
@@ -236,24 +208,14 @@ export default function ExpenseForm() {
       </div>
 
       <div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <button
-            type="submit"
-            form="expense-form"
-            disabled={!hasActiveDuty || isSubmitting}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting ? "Saving..." : "Save"}
-          </button>
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={!hasActiveDuty || isSubmitting}
-            className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting ? "Uploading..." : "Upload"}
-          </button>
-        </div>
+        <button
+          type="submit"
+          form="expense-form"
+          disabled={!hasActiveDuty || isSubmitting}
+          className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSubmitting ? "Uploading..." : "Upload"}
+        </button>
       </div>
     </div>
   );
