@@ -13,6 +13,7 @@ export interface CustomerLedgerEntry {
   transaction_type: "credit" | "payment";
   status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
   created_at: string;
+  received_at: string | null;
   issued_by_worker_name: string;
   received_by_worker_name: string | null;
 }
@@ -72,7 +73,7 @@ async function buildCustomerLedger(
   const { data: ledgerRows, error: ledgerError } = await supabase
     .from("ledger_transactions")
     .select(`
-      id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at,
+      id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at, received_at,
       issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
       receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
     `)
@@ -92,6 +93,7 @@ async function buildCustomerLedger(
     transaction_type: row.transaction_type as "credit" | "payment",
     status: row.status as CustomerLedgerEntry["status"],
     created_at: row.created_at,
+    received_at: row.received_at,
     issued_by_worker_name: getJoinedProfileName(row.issuer) || "Unknown Worker",
     received_by_worker_name: getJoinedProfileName(row.receiver),
   }));
@@ -144,7 +146,7 @@ export async function getCustomerDirectory(): Promise<{
         latest_transaction_at: ledgerEntries[0]?.created_at || "",
         };
       })
-      .filter((customer) => customer.total_balance > 0 || customer.has_pending_approval)
+      .filter((customer) => customer.total_balance > 0)
       .sort((first, second) =>
         second.latest_transaction_at.localeCompare(first.latest_transaction_at)
       ),
@@ -248,7 +250,7 @@ export async function getCustomerLedgerByPhone(
 
 export async function markLedgerPaymentReceived(
   transactionId: string
-): Promise<{ success: boolean; error?: string; workerName?: string }> {
+): Promise<{ success: boolean; error?: string; workerName?: string; receivedAt?: string }> {
   const auth = await getAuthenticatedUserProfile();
   if (!auth) return { success: false, error: "Sign in to record a payment." };
   if (auth.profile.role !== "worker") {
@@ -261,10 +263,14 @@ export async function markLedgerPaymentReceived(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("ledger_transactions")
-    .update({ status: "PENDING_APPROVAL", received_by_worker: auth.profile.id })
+    .update({
+      status: "PENDING_APPROVAL",
+      received_by_worker: auth.profile.id,
+      received_at: new Date().toISOString(),
+    })
     .eq("id", transactionId)
     .eq("status", "UNPAID")
-    .select("id")
+    .select("id, received_at")
     .maybeSingle();
 
   if (error) return { success: false, error: error.message };
@@ -272,7 +278,11 @@ export async function markLedgerPaymentReceived(
     return { success: false, error: "This entry is no longer unpaid. Refresh the ledger." };
   }
 
-  return { success: true, workerName: auth.profile.name || "Unknown Worker" };
+  return {
+    success: true,
+    workerName: auth.profile.name || "Unknown Worker",
+    receivedAt: data.received_at,
+  };
 }
 
 export interface PendingApprovalEntry {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
@@ -36,8 +36,7 @@ export default function WorkerCustomerLedger({
   const [entries, setEntries] = useState<CustomerLedgerEntry[]>([]);
   const [totalLiters, setTotalLiters] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const requestIdRef = useRef(0);
@@ -254,14 +253,14 @@ export default function WorkerCustomerLedger({
     );
   }, [customers, offlineDirectory]);
 
-  function markReceived(entryId: string) {
+  async function markReceived(entryId: string) {
+    if (loadingIds.has(entryId)) return;
     setError(null);
-    setUpdatingId(entryId);
-    startTransition(async () => {
+    setLoadingIds((current) => new Set(current).add(entryId));
+    try {
       const result = await markLedgerPaymentReceived(entryId);
       if (!result.success) {
         setError(result.error || "Unable to record payment receipt.");
-        setUpdatingId(null);
         return;
       }
       setEntries((current) => current.map((entry) =>
@@ -269,17 +268,23 @@ export default function WorkerCustomerLedger({
           ? {
               ...entry,
               status: "PENDING_APPROVAL",
+              received_at: result.receivedAt || new Date().toISOString(),
               received_by_worker_name: result.workerName || "Unknown Worker",
             }
           : entry
       ));
-          void refreshDirectory();
-      setUpdatingId(null);
-    });
+      void refreshDirectory();
+    } finally {
+      setLoadingIds((current) => {
+        const next = new Set(current);
+        next.delete(entryId);
+        return next;
+      });
+    }
   }
 
   const filteredCustomers = directoryCustomers.filter((item) => {
-    if (item.total_balance <= 0 && !item.has_pending_approval) return false;
+    if (item.total_balance <= 0) return false;
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.name.toLocaleLowerCase().includes(query) ||
       item.phone_number.toLocaleLowerCase().includes(query);
@@ -389,9 +394,14 @@ export default function WorkerCustomerLedger({
                               {entry.status === "PENDING_APPROVAL" ? "Waiting for Owner Approval" : entry.status}
                             </span>
                           </div>
-                          <p className="mt-2 text-sm font-semibold text-zinc-300">
-                            {new Date(entry.created_at).toLocaleString()}
+                          <p className="mt-2 text-xs text-zinc-400">
+                            Issued: <span className="text-zinc-300">{new Date(entry.created_at).toLocaleString()}</span>
                           </p>
+                          {entry.received_at && (
+                            <p className="mt-1 text-xs text-yellow-200">
+                              Received: <span>{new Date(entry.received_at).toLocaleString()}</span>
+                            </p>
+                          )}
                           {entry.liters > 0 && (
                             <p className="mt-1 text-xs text-zinc-500">{entry.liters.toLocaleString()} L</p>
                           )}
@@ -410,10 +420,10 @@ export default function WorkerCustomerLedger({
                             <button
                               type="button"
                               onClick={() => markReceived(entry.id)}
-                              disabled={isPending}
+                              disabled={loadingIds.has(entry.id)}
                               className="whitespace-nowrap rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-200 transition-colors hover:bg-amber-400/20 disabled:cursor-wait disabled:opacity-60"
                             >
-                              {updatingId === entry.id ? "Updating..." : "Received by Worker"}
+                              {loadingIds.has(entry.id) ? "Updating..." : "Received by Worker"}
                             </button>
                           )}
                         </div>

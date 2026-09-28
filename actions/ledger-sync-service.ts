@@ -184,6 +184,7 @@ export async function syncLedgerToCloudService(
         applied_sp: price,
         transaction_type: entry.transaction_type || "credit",
         status: entry.status || (entry.transaction_type === "payment" ? "PENDING_APPROVAL" : "UNPAID"),
+        received_at: entry.received_at || null,
         created_at: entry.created_at || new Date().toISOString(),
       };
     });

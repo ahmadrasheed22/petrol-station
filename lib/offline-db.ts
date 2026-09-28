@@ -67,6 +67,7 @@ export interface PendingLedgerTransaction {
   worker_id?: string;
   issued_by_worker?: string;
   received_by_worker?: string;
+  received_at?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number; // Manual price input
