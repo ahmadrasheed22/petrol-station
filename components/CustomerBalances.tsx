@@ -46,7 +46,7 @@ export default function CustomerBalances() {
     return customers.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
-        (c.vehicle_number && c.vehicle_number.toLowerCase().includes(q))
+        c.phone_number.toLowerCase().includes(q)
     );
   }, [customers, searchQuery]);
 
@@ -126,7 +126,7 @@ export default function CustomerBalances() {
           </div>
           <input
             type="text"
-            placeholder="Search by customer name or vehicle number..."
+            placeholder="Search by customer name or phone number..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-xl border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-4 text-xs text-zinc-100 placeholder-zinc-500 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors"
@@ -145,7 +145,7 @@ export default function CustomerBalances() {
                 <thead className="border-b border-zinc-800 bg-zinc-900/80 text-zinc-400 font-medium">
                   <tr>
                     <th scope="col" className="px-4 py-3">Customer</th>
-                    <th scope="col" className="px-4 py-3">Vehicle #</th>
+                    <th scope="col" className="px-4 py-3">Phone Number</th>
                     <th scope="col" className="px-4 py-3 text-right">Balance</th>
                     <th scope="col" className="px-4 py-3 text-center">Status</th>
                   </tr>
@@ -162,9 +162,9 @@ export default function CustomerBalances() {
                           {cust.name}
                         </td>
                         <td className="px-4 py-3.5 text-zinc-400">
-                          {cust.vehicle_number ? (
+                          {cust.phone_number ? (
                             <span className="font-mono bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-[11px] text-zinc-300">
-                              {cust.vehicle_number}
+                              {cust.phone_number}
                             </span>
                           ) : (
                             <span className="text-zinc-600">—</span>

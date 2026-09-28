@@ -29,44 +29,44 @@ export async function syncLedgerToCloudService(
       existingCustomerIds = new Set((existingCustomers || []).map((customer) => customer.id));
     }
 
-    const namesToResolve = Array.from(
-      new Set(
-        ledgerEntries
-          .filter((entry) => !entry.customer_id || !existingCustomerIds.has(entry.customer_id))
-          .map((entry) => entry.customer_name?.trim())
-          .filter((name): name is string => Boolean(name))
-      )
+    const unresolvedEntries = ledgerEntries.filter(
+      (entry) => !entry.customer_id || !existingCustomerIds.has(entry.customer_id)
     );
-
-    const nameToIdMap = new Map<string, string>();
-    if (namesToResolve.length > 0) {
+    const phoneNumbersToResolve = Array.from(
+      new Set(unresolvedEntries.map((entry) => entry.phone_number?.trim()).filter(Boolean))
+    ) as string[];
+    const phoneToIdMap = new Map<string, string>();
+    if (phoneNumbersToResolve.length > 0) {
       const { data: matchedByName } = await supabase
         .from("customers")
-        .select("id, name")
-        .in("name", namesToResolve);
+        .select("id, phone_number")
+        .in("phone_number", phoneNumbersToResolve);
 
       (matchedByName || []).forEach((customer) => {
-        nameToIdMap.set(customer.name.toLowerCase(), customer.id);
+        phoneToIdMap.set(customer.phone_number, customer.id);
       });
 
-      const missingNames = namesToResolve.filter((name) => !nameToIdMap.has(name.toLowerCase()));
-      if (missingNames.length > 0) {
-        const newCustomers = missingNames.map((name) => ({
-          name,
+      const missingCustomers = unresolvedEntries
+        .filter((entry) => entry.phone_number?.trim() && !phoneToIdMap.has(entry.phone_number.trim()))
+        .filter((entry, index, entries) =>
+          entries.findIndex((candidate) => candidate.phone_number?.trim() === entry.phone_number?.trim()) === index
+        )
+        .map((entry) => ({
+          name: entry.customer_name?.trim() || "Walk-in Customer",
+          phone_number: entry.phone_number!.trim(),
           total_balance: 0,
           updated_at: new Date().toISOString(),
         }));
 
-        const { data: createdCustomers, error: createCustomerError } = await supabase
-          .from("customers")
-          .insert(newCustomers)
-          .select("id, name");
+      const { data: createdCustomers, error: createCustomerError } = await supabase
+        .from("customers")
+        .insert(missingCustomers)
+        .select("id, phone_number");
 
-        if (!createCustomerError && createdCustomers) {
-          createdCustomers.forEach((customer) => {
-            nameToIdMap.set(customer.name.toLowerCase(), customer.id);
-          });
-        }
+      if (!createCustomerError && createdCustomers) {
+        createdCustomers.forEach((customer) => {
+          phoneToIdMap.set(customer.phone_number, customer.id);
+        });
       }
     }
 
@@ -74,10 +74,10 @@ export async function syncLedgerToCloudService(
       if (entry.customer_id && existingCustomerIds.has(entry.customer_id)) {
         entryCustomerMap.set(entry, entry.customer_id);
       } else if (
-        entry.customer_name &&
-        nameToIdMap.has(entry.customer_name.trim().toLowerCase())
+        entry.phone_number &&
+        phoneToIdMap.has(entry.phone_number.trim())
       ) {
-        entryCustomerMap.set(entry, nameToIdMap.get(entry.customer_name.trim().toLowerCase())!);
+        entryCustomerMap.set(entry, phoneToIdMap.get(entry.phone_number.trim())!);
       } else {
         entryCustomerMap.set(entry, null);
       }
@@ -86,7 +86,7 @@ export async function syncLedgerToCloudService(
     const workerIds = Array.from(
       new Set(
         ledgerEntries
-          .map((entry) => entry.worker_id)
+          .flatMap((entry) => [entry.worker_id, entry.issued_by_worker, entry.received_by_worker])
           .filter((id): id is string => Boolean(id))
       )
     );
@@ -108,11 +108,24 @@ export async function syncLedgerToCloudService(
         customer_name: entry.customer_name || null,
         worker_id:
           entry.worker_id && validWorkerIds.has(entry.worker_id) ? entry.worker_id : null,
+        issued_by_worker:
+          entry.issued_by_worker && validWorkerIds.has(entry.issued_by_worker)
+            ? entry.issued_by_worker
+            : entry.transaction_type === "credit" && entry.worker_id && validWorkerIds.has(entry.worker_id)
+              ? entry.worker_id
+              : null,
+        received_by_worker:
+          entry.received_by_worker && validWorkerIds.has(entry.received_by_worker)
+            ? entry.received_by_worker
+            : entry.transaction_type === "payment" && entry.worker_id && validWorkerIds.has(entry.worker_id)
+              ? entry.worker_id
+              : null,
         liters: entry.liters ?? 0,
         amount: entry.amount ?? 0,
         price_per_liter: price,
         applied_sp: price,
         transaction_type: entry.transaction_type || "credit",
+        status: entry.status || (entry.transaction_type === "payment" ? "PENDING_APPROVAL" : "UNPAID"),
         created_at: entry.created_at || new Date().toISOString(),
       };
     });

@@ -19,6 +19,7 @@ export default function CreditSaleForm() {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerName, setCustomerName] = useState<string>("");
+  const [phoneNumber, setPhoneNumber] = useState<string>("");
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [litersStr, setLitersStr] = useState<string>("");
   const [pricePerLiterStr, setPricePerLiterStr] = useState<string>("");
@@ -104,8 +105,14 @@ export default function CreditSaleForm() {
     setErrorMsg(null);
 
     const targetCustomerName = customerName.trim();
+    const targetPhoneNumber = phoneNumber.trim();
     if (!targetCustomerName) {
       setErrorMsg("Please enter a customer name.");
+      return;
+    }
+
+    if (!targetPhoneNumber) {
+      setErrorMsg("Please enter the customer's phone number.");
       return;
     }
 
@@ -131,6 +138,7 @@ export default function CreditSaleForm() {
 
       await addPendingLedgerTx({
         customer_name: targetCustomerName,
+        phone_number: targetPhoneNumber,
         worker_id: activeShift?.user_id,
         liters,
         amount: finalAmount,
@@ -153,6 +161,7 @@ export default function CreditSaleForm() {
 
       // Reset form inputs for next manual entry
       setCustomerName("");
+      setPhoneNumber("");
       setLitersStr("");
       setManualAmountStr("");
       setIsCustomAmount(false);
@@ -237,6 +246,7 @@ export default function CreditSaleForm() {
         <CreditSaleFields
           products={products}
           customerName={customerName}
+          phoneNumber={phoneNumber}
           selectedProductId={selectedProductId}
           litersStr={litersStr}
           pricePerLiterStr={pricePerLiterStr}
@@ -246,6 +256,7 @@ export default function CreditSaleForm() {
           calculatedTotal={calculatedTotal}
           onSubmit={handleSubmit}
           onCustomerNameChange={setCustomerName}
+          onPhoneNumberChange={setPhoneNumber}
           onProductChange={handleProductChange}
           onLitersChange={setLitersStr}
           onPricePerLiterChange={setPricePerLiterStr}

@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from "dexie";
 
 export type SyncStatus = "draft" | "pending" | "synced" | "failed";
+export type LedgerStatus = "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
 
 export interface PendingSale {
   id?: number;
@@ -52,7 +53,7 @@ export interface PendingExpense {
 export interface CustomerRecord {
   id: string;
   name: string;
-  vehicle_number?: string | null;
+  phone_number: string;
   total_balance: number;
   created_at?: string;
   updated_at?: string;
@@ -62,12 +63,16 @@ export interface PendingLedgerTransaction {
   id?: number;
   customer_id?: string;
   customer_name: string; // Raw text customer name saved directly
+  phone_number: string;
   worker_id?: string;
+  issued_by_worker?: string;
+  received_by_worker?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number; // Manual price input
   applied_sp?: number;
   transaction_type: "credit" | "payment";
+  status: LedgerStatus;
   sync_status: SyncStatus;
   created_at: string;
 }
@@ -157,6 +162,41 @@ export class PetrolPumpDB extends Dexie {
       customers: "id, name, vehicle_number, total_balance",
       pendingInventory: "++id, sync_status, product_id, created_at",
     });
+
+    this.version(8)
+      .stores({
+        pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+        pendingExpenses: "++id, sync_status, shift_id, category, amount, description, created_at",
+        pendingLedger: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
+        pendingLedgerTransactions: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
+        shifts: "++id, shift_id, user_id, product_id, status, sync_status, created_at",
+        customers: "id, name, phone_number, total_balance",
+        pendingInventory: "++id, sync_status, product_id, created_at",
+      })
+      .upgrade(async (transaction) => {
+        await transaction.table("customers").toCollection().modify((customer) => {
+          const legacyCustomer = customer as CustomerRecord & {
+            vehicle_number?: string | null;
+          };
+          legacyCustomer.phone_number ??= "";
+          delete legacyCustomer.vehicle_number;
+        });
+
+        const normalizeLedger = (record: PendingLedgerTransaction) => {
+          record.phone_number ??= "";
+          record.issued_by_worker ??=
+            record.transaction_type === "credit" ? record.worker_id : undefined;
+          record.received_by_worker ??=
+            record.transaction_type === "payment" ? record.worker_id : undefined;
+          record.status ??=
+            record.transaction_type === "payment" ? "PENDING_APPROVAL" : "UNPAID";
+        };
+        await transaction
+          .table("pendingLedgerTransactions")
+          .toCollection()
+          .modify(normalizeLedger);
+        await transaction.table("pendingLedger").toCollection().modify(normalizeLedger);
+      });
   }
 }
 
