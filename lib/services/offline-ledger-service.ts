@@ -96,9 +96,9 @@ export async function addPendingLedgerTx(txData: {
     phone_number: phoneNumber,
     worker_id: txData.worker_id,
     issued_by_worker:
-      txData.issued_by_worker ?? (txType === "credit" ? txData.worker_id : undefined),
+      txData.issued_by_worker ?? txData.worker_id ?? (txType === "credit" ? txData.worker_id : undefined),
     received_by_worker:
-      txData.received_by_worker ?? (txType === "payment" ? txData.worker_id : undefined),
+      txData.received_by_worker ?? txData.worker_id ?? (txType === "payment" ? txData.worker_id : undefined),
     liters: txData.liters,
     amount: txData.amount,
     price_per_liter: price,

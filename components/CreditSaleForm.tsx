@@ -133,6 +133,7 @@ export default function CreditSaleForm({
         customer_name: targetCustomerName,
         phone_number: targetPhoneNumber,
         worker_id: activeShift?.user_id,
+        issued_by_worker: activeShift?.user_id,
         liters,
         amount: finalAmount,
         price_per_liter: pricePerLiter,

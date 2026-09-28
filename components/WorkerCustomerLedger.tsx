@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
   getCustomerLedgerById,
+  getCustomerLedgerByName,
   markLedgerPaymentReceived,
   type CustomerDirectoryEntry,
   type CustomerLedgerEntry,
@@ -27,12 +28,13 @@ export default function WorkerCustomerLedger({
   const [customers, setCustomers] = useState<CustomerDirectoryEntry[]>([]);
   const [customer, setCustomer] = useState<CustomerDirectoryEntry | null>(null);
   const [entries, setEntries] = useState<CustomerLedgerEntry[]>([]);
-  const [totalLiters, setTotalLiters] = useState(0);
-  const [error, setError] = useState("");
+  const [totalLiters, setTotalLiters] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const requestIdRef = useRef(0);
   const offlineDirectory = useLiveQuery(
     async () => {
       const [offlineCustomers, ledgerTransactions] = await Promise.all([
@@ -54,7 +56,7 @@ export default function WorkerCustomerLedger({
           setError(result.error || "Unable to load the customer directory.");
           return;
         }
-        setError("");
+        setError(null);
         setCustomers(result.customers || []);
       })
       .catch(() => setError("Unable to load the customer directory."))
@@ -66,29 +68,74 @@ export default function WorkerCustomerLedger({
   }, [refreshDirectory, refreshKey]);
 
   async function openCustomerById(customerId: string) {
-    setError("");
-    setCustomer(customers.find((item) => item.id === customerId) || null);
+    const targetCustomer = customers.find((item) => item.id === customerId) || null;
+    const requestId = ++requestIdRef.current;
+
+    setError(null);
+    setCustomer(targetCustomer);
     setEntries([]);
-    setTotalLiters(0);
+    setTotalLiters(null);
     setIsLoadingDetail(true);
-    const result = await getCustomerLedgerById(customerId);
-    if (!result.success) {
-      setError(result.error || "Unable to load this customer ledger.");
+
+    const resolveCustomerLedger = async (customer: CustomerDirectoryEntry) => {
+      const result = customer.phone_number.trim()
+        ? await getCustomerLedgerById(customer.id)
+        : await getCustomerLedgerByName(customer.name);
+
+      if (requestId !== requestIdRef.current) return null;
+      if (!result.success) {
+        setError(result.error || "Unable to load this customer ledger.");
+        setIsLoadingDetail(false);
+        return null;
+      }
+      if (!result.customer) {
+        setError("This customer could not be found in the cloud ledger.");
+        setIsLoadingDetail(false);
+        return null;
+      }
+
+      const freshCustomer = {
+        ...customer,
+        ...result.customer,
+        total_balance: result.customer.total_balance,
+      };
+
+      setCustomer(freshCustomer);
+      setCustomers((current) => [
+        freshCustomer,
+        ...current.filter((item) => item.id !== freshCustomer.id),
+      ]);
+      setEntries(result.entries || []);
+      setTotalLiters(result.total_liters ?? 0);
+      setIsLoadingDetail(false);
+      return freshCustomer;
+    };
+
+    const fallbackResult = targetCustomer ? await resolveCustomerLedger(targetCustomer) : null;
+    if (fallbackResult || !targetCustomer) {
+      return;
+    }
+
+    const idResult = await getCustomerLedgerById(customerId);
+    if (requestId !== requestIdRef.current) return;
+    if (!idResult.success) {
+      setError(idResult.error || "Unable to load this customer ledger.");
       setIsLoadingDetail(false);
       return;
     }
-    if (!result.customer) {
+    if (!idResult.customer) {
       setError("This customer could not be found in the cloud ledger.");
       setIsLoadingDetail(false);
       return;
     }
-    setCustomer(result.customer);
+
+    setCustomer(idResult.customer);
     setCustomers((current) => [
-      result.customer!,
-      ...current.filter((item) => item.id !== result.customer!.id),
+      idResult.customer!,
+      ...current.filter((item) => item.id !== idResult.customer!.id),
     ]);
-    setEntries(result.entries || []);
-    setTotalLiters(result.total_liters || 0);
+    setEntries(idResult.entries || []);
+    setTotalLiters(idResult.total_liters ?? 0);
     setIsLoadingDetail(false);
   }
 
@@ -190,7 +237,7 @@ export default function WorkerCustomerLedger({
   }, [customers, offlineDirectory]);
 
   function markReceived(entryId: string) {
-    setError("");
+    setError(null);
     setUpdatingId(entryId);
     startTransition(async () => {
       const result = await markLedgerPaymentReceived(entryId);
@@ -230,7 +277,7 @@ export default function WorkerCustomerLedger({
             type="button"
             onClick={() => {
               setCustomer(null);
-              setError("");
+              setError(null);
               void refreshDirectory();
             }}
             className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-emerald-500/50 hover:text-emerald-300"
@@ -264,9 +311,11 @@ export default function WorkerCustomerLedger({
       {customer && (
         <div className="space-y-4 transition-opacity duration-200">
           {isLoadingDetail ? (
-            <div className="animate-pulse space-y-3" aria-label="Loading ledger">
-              <div className="h-20 rounded-xl bg-zinc-800/70" />
-              <div className="h-24 rounded-xl bg-zinc-800/50" />
+            <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950/40" aria-live="polite" aria-label="Loading ledger">
+              <div className="flex items-center gap-3 text-zinc-200">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-emerald-400" />
+                <span className="text-sm font-medium text-zinc-200">Loading...</span>
+              </div>
             </div>
           ) : (
             <>
@@ -278,7 +327,9 @@ export default function WorkerCustomerLedger({
                 <div className="grid grid-cols-2 gap-3 sm:min-w-[300px]">
                   <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
                     <p className="text-[10px] uppercase text-zinc-400">Total Liters</p>
-                    <p className="mt-1 text-lg font-bold text-emerald-300">{totalLiters.toLocaleString(undefined, { maximumFractionDigits: 2 })} L</p>
+                    <p className="mt-1 text-lg font-bold text-emerald-300">
+                      {totalLiters === null ? "--" : totalLiters.toLocaleString(undefined, { maximumFractionDigits: 2 })} L
+                    </p>
                   </div>
                   <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
                     <p className="text-[10px] uppercase text-zinc-400">Amount Due</p>

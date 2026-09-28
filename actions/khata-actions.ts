@@ -40,6 +40,18 @@ export interface CustomerDirectoryEntry {
 
 type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at">;
 
+function getJoinedProfileName(value: unknown): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    return getJoinedProfileName(value[0]) || null;
+  }
+  if (typeof value === "object") {
+    const maybeProfile = value as { name?: string | null };
+    return maybeProfile.name || null;
+  }
+  return null;
+}
+
 async function buildCustomerLedger(
   supabase: Awaited<ReturnType<typeof createClient>>,
   customer: CustomerSummary
@@ -67,8 +79,8 @@ async function buildCustomerLedger(
     transaction_type: row.transaction_type as "credit" | "payment",
     status: row.status as CustomerLedgerEntry["status"],
     created_at: row.created_at,
-    issued_by_worker_name: row.issuer?.[0]?.name || "Unknown Worker",
-    received_by_worker_name: row.receiver?.[0]?.name || null,
+    issued_by_worker_name: getJoinedProfileName(row.issuer) || "Unknown Worker",
+    received_by_worker_name: getJoinedProfileName(row.receiver),
   }));
 
   return {
@@ -134,6 +146,41 @@ export async function getCustomerLedgerById(customerId: string): Promise<Custome
 
   if (error) return { success: false, error: error.message };
   if (!customer) return { success: true, entries: [], total_liters: 0 };
+
+  return buildCustomerLedger(supabase, {
+    id: customer.id,
+    name: customer.name,
+    phone_number: customer.phone_number || "",
+    total_balance: Number(customer.total_balance) || 0,
+  });
+}
+
+export async function getCustomerLedgerByName(
+  customerName: string
+): Promise<CustomerLedgerResult> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth) return { success: false, error: "Sign in to search customer ledgers." };
+
+  const normalizedName = customerName.trim();
+  if (!normalizedName) {
+    return { success: false, error: "Enter a valid customer name." };
+  }
+
+  const supabase = await createClient();
+  const { data: customer, error: customerError } = await supabase
+    .from("customers")
+    .select("id, name, phone_number, total_balance")
+    .ilike("name", normalizedName)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (customerError) {
+    return { success: false, error: customerError.message };
+  }
+  if (!customer) {
+    return { success: true, entries: [], total_liters: 0 };
+  }
 
   return buildCustomerLedger(supabase, {
     id: customer.id,
