@@ -109,7 +109,7 @@ export async function getCustomerDirectory(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("customers")
-    .select("id, name, phone_number, total_balance, ledger_transactions!inner(created_at)")
+    .select("id, name, phone_number, total_balance, ledger_transactions(created_at)")
     .order("created_at", { referencedTable: "ledger_transactions", ascending: false });
 
   if (error) return { success: false, error: error.message };
@@ -252,4 +252,137 @@ export async function markLedgerPaymentReceived(
   }
 
   return { success: true, workerName: auth.profile.name || "Unknown Worker" };
+}
+
+export interface PendingApprovalEntry {
+  id: string;
+  customer_name: string;
+  amount: number;
+  created_at: string;
+  issued_by_worker_name: string;
+  received_by_worker_name: string;
+}
+
+export interface AdminKhataOverview {
+  total_outstanding: number;
+  customers: CustomerDirectoryEntry[];
+  pending_approvals: PendingApprovalEntry[];
+}
+
+export async function getAdminKhataOverview(): Promise<{
+  success: boolean;
+  error?: string;
+  overview?: AdminKhataOverview;
+}> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth || auth.profile.role !== "owner") {
+    return { success: false, error: "Unauthorized. Only station owners can view Khata approvals." };
+  }
+
+  const supabase = await createClient();
+  const [{ data: customers, error: customersError }, { data: pendingRows, error: pendingError }] =
+    await Promise.all([
+      supabase
+        .from("customers")
+        .select("id, name, phone_number, total_balance, ledger_transactions(created_at)")
+        .order("created_at", { referencedTable: "ledger_transactions", ascending: false }),
+      supabase
+        .from("ledger_transactions")
+        .select(`
+          id, customer_name, amount, created_at,
+          customer:customers(name),
+          issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
+          receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
+        `)
+        .eq("status", "PENDING_APPROVAL")
+        .eq("transaction_type", "payment")
+        .order("created_at", { ascending: false }),
+    ]);
+
+  if (customersError) return { success: false, error: customersError.message };
+  if (pendingError) return { success: false, error: pendingError.message };
+
+  const directory = (customers || [])
+    .map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      phone_number: customer.phone_number || "",
+      total_balance: Number(customer.total_balance) || 0,
+      latest_transaction_at: customer.ledger_transactions[0]?.created_at || "",
+    }))
+    .sort((first, second) => second.latest_transaction_at.localeCompare(first.latest_transaction_at));
+
+  return {
+    success: true,
+    overview: {
+      total_outstanding: directory.reduce(
+        (total, customer) => total + Math.max(customer.total_balance, 0),
+        0
+      ),
+      customers: directory,
+      pending_approvals: (pendingRows || []).map((row) => ({
+        id: row.id,
+        customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
+        amount: Number(row.amount) || 0,
+        created_at: row.created_at,
+        issued_by_worker_name: getJoinedProfileName(row.issuer) || "Unknown Worker",
+        received_by_worker_name: getJoinedProfileName(row.receiver) || "Unknown Worker",
+      })),
+    },
+  };
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+export async function updateLedgerApproval(
+  transactionId: string,
+  status: "SETTLED" | "UNPAID"
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth || auth.profile.role !== "owner") {
+    return { success: false, error: "Unauthorized. Only station owners can review payments." };
+  }
+  if (status !== "SETTLED" && status !== "UNPAID") {
+    return { success: false, error: "Invalid approval status." };
+  }
+  if (!isUuid(transactionId)) return { success: false, error: "Invalid ledger entry." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ledger_transactions")
+    .update({ status })
+    .eq("id", transactionId)
+    .eq("status", "PENDING_APPROVAL")
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "This payment is no longer pending. Refresh the queue." };
+  return { success: true };
+}
+
+export async function bulkApproveLedgerPayments(
+  transactionIds: string[]
+): Promise<{ success: boolean; error?: string; settledCount?: number }> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth || auth.profile.role !== "owner") {
+    return { success: false, error: "Unauthorized. Only station owners can approve payments." };
+  }
+  const ids = Array.isArray(transactionIds) ? [...new Set(transactionIds)] : [];
+  if (ids.length === 0 || ids.length > 100 || ids.some((id) => typeof id !== "string" || !isUuid(id))) {
+    return { success: false, error: "Select valid pending payments." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ledger_transactions")
+    .update({ status: "SETTLED" })
+    .in("id", ids)
+    .eq("status", "PENDING_APPROVAL")
+    .select("id");
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, settledCount: data?.length || 0 };
 }
