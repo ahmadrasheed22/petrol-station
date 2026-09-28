@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getShiftMeterReadings } from "@/actions/pump-actions";
+import { getPumpConfig, getShiftMeterReadings } from "@/actions/pump-actions";
 
 interface MeterReadingRecord {
   id: string;
@@ -54,6 +54,8 @@ export default function MeterReadingsHistory({
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [readings, setReadings] = useState<MeterReadingRecord[]>([]);
+  const [configuredFuelTypes, setConfiguredFuelTypes] = useState<string[]>([]);
+  const [selectedFuelType, setSelectedFuelType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,12 +69,22 @@ export default function MeterReadingsHistory({
       setLoading(true);
       setError(null);
       try {
-        const result = await getShiftMeterReadings(userId, limit);
+        const [result, config] = await Promise.all([
+          getShiftMeterReadings(userId, limit),
+          getPumpConfig(),
+        ]);
         if (result.success) {
           setReadings(result.data as MeterReadingRecord[]);
         } else {
           setError(result.error || "Failed to load readings");
         }
+        setConfiguredFuelTypes([
+          ...new Set(
+            config.meters
+              .filter((meter) => meter.status === "active" && meter.fuel_type)
+              .map((meter) => meter.fuel_type)
+          ),
+        ]);
       } catch (err) {
         console.error("Error loading meter readings:", err);
         setError("Failed to load meter readings");
@@ -87,6 +99,10 @@ export default function MeterReadingsHistory({
   const groupedReadings = useMemo(() => {
     const grouped: Record<string, MeterReadingRecord[]> = {};
 
+    configuredFuelTypes.forEach((fuelType) => {
+      grouped[fuelType] = [];
+    });
+
     readings.forEach((reading) => {
       const fuelType = reading.machine_meters.fuel_type || "Other";
       if (!grouped[fuelType]) {
@@ -97,14 +113,22 @@ export default function MeterReadingsHistory({
 
     const orderedFuelTypes = [
       ...fuelTypeOrder,
-      ...Object.keys(grouped).filter((fuelType) => !fuelTypeOrder.includes(fuelType)),
+      ...Object.keys(grouped).filter((fuelType) => !fuelTypeOrder.includes(fuelType)).sort(),
     ];
 
     return orderedFuelTypes.filter((fuelType) => grouped[fuelType]).map((fuelType) => ({
       fuelType,
       readings: grouped[fuelType] || [],
     }));
-  }, [readings]);
+  }, [configuredFuelTypes, readings]);
+
+  const activeFuelGroup = groupedReadings.find(({ fuelType }) => fuelType === selectedFuelType)
+    ?? groupedReadings[0];
+  const activeFuelType = activeFuelGroup?.fuelType ?? "";
+  const activeFuelReadings = activeFuelGroup?.readings ?? [];
+  const activeFuelTypeIndex = groupedReadings.findIndex(
+    ({ fuelType }) => fuelType === activeFuelType
+  );
 
   if (!mounted || loading) {
     return (
@@ -127,11 +151,11 @@ export default function MeterReadingsHistory({
     );
   }
 
-  if (readings.length === 0) {
+  if (groupedReadings.length === 0) {
     return (
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
         <h3 className="font-semibold text-zinc-200 mb-2">Meter Readings Audit</h3>
-        <p className="text-sm text-zinc-400">No meter readings recorded yet.</p>
+        <p className="text-sm text-zinc-400">No fuel products or meter readings are configured.</p>
       </div>
     );
   }
@@ -153,14 +177,54 @@ export default function MeterReadingsHistory({
         </svg>
       </div>
 
-      <div className="space-y-6">
-        {groupedReadings.map(({ fuelType, readings: fuelReadings }) => (
-          <section key={fuelType} className="space-y-3">
+      <div>
+        <div
+          className="flex gap-2 overflow-x-auto border-b border-zinc-800 pb-2"
+          role="tablist"
+          aria-label="Fuel type"
+        >
+          {groupedReadings.map(({ fuelType, readings: fuelReadings }, index) => {
+            const isSelected = activeFuelGroup?.fuelType === fuelType;
+            const activeTabClass = fuelType === "Petrol"
+              ? "border-amber-400 bg-amber-500/10 text-amber-300"
+              : fuelType === "Diesel"
+                ? "border-rose-400 bg-rose-500/10 text-rose-300"
+                : "border-cyan-400 bg-cyan-500/10 text-cyan-300";
+
+            return (
+              <button
+                key={fuelType}
+                type="button"
+                role="tab"
+                id={`fuel-tab-${index}`}
+                aria-selected={isSelected}
+                aria-controls={`fuel-panel-${index}`}
+                onClick={() => setSelectedFuelType(fuelType)}
+                className={`shrink-0 rounded-t-lg border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${
+                  isSelected
+                    ? activeTabClass
+                    : "border-transparent text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                }`}
+              >
+                {fuelType}
+                <span className="ml-2 text-xs text-zinc-500">{fuelReadings.length}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {activeFuelGroup && (
+          <section
+            id={`fuel-panel-${activeFuelTypeIndex}`}
+            role="tabpanel"
+            aria-labelledby={`fuel-tab-${activeFuelTypeIndex}`}
+            className="space-y-3 pt-4"
+          >
             <div
               className={`rounded-lg border px-4 py-3 ${
-                fuelType === "Petrol"
+                activeFuelType === "Petrol"
                   ? "border-amber-500/30 bg-amber-500/5"
-                  : fuelType === "Diesel"
+                  : activeFuelType === "Diesel"
                   ? "border-red-500/30 bg-red-500/5"
                   : "border-cyan-500/30 bg-cyan-500/5"
               }`}
@@ -169,17 +233,17 @@ export default function MeterReadingsHistory({
                 <div>
                   <h4
                     className={`text-sm font-semibold ${
-                      fuelType === "Petrol"
+                      activeFuelType === "Petrol"
                         ? "text-amber-400"
-                        : fuelType === "Diesel"
+                        : activeFuelType === "Diesel"
                         ? "text-red-400"
                         : "text-cyan-400"
                     }`}
                   >
-                    {fuelType}
+                    {activeFuelType}
                   </h4>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">
-                    {fuelReadings.length} record(s)
+                    {activeFuelReadings.length} record(s)
                   </p>
                 </div>
                 <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
@@ -189,13 +253,13 @@ export default function MeterReadingsHistory({
             </div>
 
             <div className="space-y-3">
-              {fuelReadings.length === 0 ? (
+              {activeFuelReadings.length === 0 ? (
                 <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-4 text-sm text-zinc-500">
-                  No {fuelType} readings in this window.
+                  No {activeFuelType} readings in this window.
                 </div>
               ) : null}
 
-              {fuelReadings.map((reading) => {
+              {activeFuelReadings.map((reading) => {
                 const date = formatDate(reading.recorded_at);
                 const time = formatTime(reading.recorded_at);
 
@@ -278,13 +342,13 @@ export default function MeterReadingsHistory({
 
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
               <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                {fuelType} Totals
+                {activeFuelType} Totals
               </h5>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Liters Dispensed</p>
                   <p className="mt-1 text-lg font-bold text-white">
-                    {fuelReadings.reduce((total, reading) => total + Number(reading.liters_dispensed || 0), 0).toLocaleString("en-PK", {
+                    {activeFuelReadings.reduce((total, reading) => total + Number(reading.liters_dispensed || 0), 0).toLocaleString("en-PK", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })} L
@@ -293,7 +357,7 @@ export default function MeterReadingsHistory({
                 <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Amount (Rs)</p>
                   <p className="mt-1 text-lg font-bold text-emerald-300">
-                    Rs. {fuelReadings.reduce((total, reading) => total + Number(reading.total_amount || 0), 0).toLocaleString("en-PK", {
+                    Rs. {activeFuelReadings.reduce((total, reading) => total + Number(reading.total_amount || 0), 0).toLocaleString("en-PK", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
@@ -302,7 +366,7 @@ export default function MeterReadingsHistory({
               </div>
             </div>
           </section>
-        ))}
+        )}
       </div>
     </div>
   );
