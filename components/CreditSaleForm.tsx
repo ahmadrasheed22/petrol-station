@@ -18,7 +18,7 @@ const DEFAULT_PRODUCTS: Product[] = [
 export default function CreditSaleForm({
   onSaleRecorded,
 }: {
-  onSaleRecorded?: (customer: { name: string; phoneNumber: string }) => void;
+  onSaleRecorded?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -58,21 +58,19 @@ export default function CreditSaleForm({
           .order("name");
 
         if (!error && data && data.length > 0) {
-          setProducts(data);
-          setSelectedProductId(data[0].id);
-          if (data[0].current_sp) {
-            setPricePerLiterStr(data[0].current_sp.toString());
-          }
+          const uniqueProducts = Array.from(
+            new Map(data.map((product) => [product.name.trim().toLowerCase(), product])).values()
+          );
+          setProducts(uniqueProducts);
+          setSelectedProductId(uniqueProducts[0].id);
         } else {
           setProducts(DEFAULT_PRODUCTS);
           setSelectedProductId(DEFAULT_PRODUCTS[0].id);
-          setPricePerLiterStr(DEFAULT_PRODUCTS[0].current_sp!.toString());
         }
       } catch (err) {
         console.warn("Could not fetch remote products, using defaults:", err);
         setProducts(DEFAULT_PRODUCTS);
         setSelectedProductId(DEFAULT_PRODUCTS[0].id);
-        setPricePerLiterStr(DEFAULT_PRODUCTS[0].current_sp!.toString());
       } finally {
         setIsLoadingProducts(false);
       }
@@ -90,10 +88,6 @@ export default function CreditSaleForm({
 
   const handleProductChange = (newProductId: string) => {
     setSelectedProductId(newProductId);
-    const selected = products.find((p) => p.id === newProductId);
-    if (selected && selected.current_sp) {
-      setPricePerLiterStr(selected.current_sp.toString());
-    }
   };
 
   const handleToggleCustomAmount = () => {
@@ -112,11 +106,6 @@ export default function CreditSaleForm({
     const targetPhoneNumber = phoneNumber.trim();
     if (!targetCustomerName) {
       setErrorMsg("Please enter a customer name.");
-      return;
-    }
-
-    if (!targetPhoneNumber) {
-      setErrorMsg("Please enter the customer's phone number.");
       return;
     }
 
@@ -150,7 +139,7 @@ export default function CreditSaleForm({
         applied_sp: pricePerLiter,
         transaction_type: "credit",
       });
-      onSaleRecorded?.({ name: targetCustomerName, phoneNumber: targetPhoneNumber });
+      onSaleRecorded?.();
 
       const isOnline = typeof navigator !== "undefined" && navigator.onLine;
       setSuccessMsg(
@@ -168,6 +157,7 @@ export default function CreditSaleForm({
       setCustomerName("");
       setPhoneNumber("");
       setLitersStr("");
+      setPricePerLiterStr("");
       setManualAmountStr("");
       setIsCustomAmount(false);
     } catch (err: unknown) {

@@ -1,19 +1,27 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
   getCustomerLedgerById,
-  getCustomerLedgerByPhone,
   markLedgerPaymentReceived,
   type CustomerDirectoryEntry,
   type CustomerLedgerEntry,
 } from "@/actions/khata-actions";
+import { db, type CustomerRecord, type PendingLedgerTransaction } from "@/lib/offline-db";
+
+function getCustomerKey(name: string, phoneNumber: string): string {
+  const normalizedPhone = phoneNumber.trim();
+  return normalizedPhone
+    ? `phone:${normalizedPhone}`
+    : `name:${name.trim().toLocaleLowerCase()}`;
+}
 
 export default function WorkerCustomerLedger({
-  newSaleCustomer,
+  refreshKey = 0,
 }: {
-  newSaleCustomer?: { name: string; phoneNumber: string; sequence: number } | null;
+  refreshKey?: number;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [customers, setCustomers] = useState<CustomerDirectoryEntry[]>([]);
@@ -25,40 +33,37 @@ export default function WorkerCustomerLedger({
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const offlineDirectory = useLiveQuery(
+    async () => {
+      const [offlineCustomers, ledgerTransactions] = await Promise.all([
+        db.customers.toArray(),
+        db.pendingLedgerTransactions
+          .filter((transaction) => transaction.sync_status !== "draft")
+          .toArray(),
+      ]);
+      return { offlineCustomers, ledgerTransactions };
+    },
+    [],
+    { offlineCustomers: [], ledgerTransactions: [] }
+  );
 
-  async function refreshDirectory() {
-    setIsLoadingDirectory(true);
-    setError("");
-    const result = await getCustomerDirectory();
-    if (!result.success) {
-      setError(result.error || "Unable to load the customer directory.");
-      setIsLoadingDirectory(false);
-      return;
-    }
-    setCustomers(result.customers || []);
-    setIsLoadingDirectory(false);
-  }
+  const refreshDirectory = useCallback(() => {
+    void getCustomerDirectory()
+      .then((result) => {
+        if (!result.success) {
+          setError(result.error || "Unable to load the customer directory.");
+          return;
+        }
+        setError("");
+        setCustomers(result.customers || []);
+      })
+      .catch(() => setError("Unable to load the customer directory."))
+      .finally(() => setIsLoadingDirectory(false));
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    getCustomerDirectory().then((result) => {
-      if (!active) return;
-      if (!result.success) {
-        setError(result.error || "Unable to load the customer directory.");
-      } else {
-        setCustomers(result.customers || []);
-      }
-      setIsLoadingDirectory(false);
-    }).catch(() => {
-      if (!active) return;
-      setError("Unable to load the customer directory.");
-      setIsLoadingDirectory(false);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+    void refreshDirectory();
+  }, [refreshDirectory, refreshKey]);
 
   async function openCustomerById(customerId: string) {
     setError("");
@@ -88,51 +93,101 @@ export default function WorkerCustomerLedger({
   }
 
   useEffect(() => {
-    if (!newSaleCustomer) return;
+    const handleSyncComplete = () => void refreshDirectory();
+    window.addEventListener("offline-sync-complete", handleSyncComplete);
+    return () => window.removeEventListener("offline-sync-complete", handleSyncComplete);
+  }, [refreshDirectory]);
 
-    const saleCustomer = newSaleCustomer;
-    async function openLatestSaleLedger() {
-      const result = await getCustomerLedgerByPhone(saleCustomer.phoneNumber);
-      setSearchQuery(saleCustomer.phoneNumber);
-      setEntries([]);
-      setTotalLiters(0);
-      setError("");
-      if (!result.success) {
-        setCustomer({
-          id: "",
-          name: saleCustomer.name,
-          phone_number: saleCustomer.phoneNumber,
-          total_balance: 0,
-          latest_transaction_at: "",
-        });
-        setError(result.error || "Unable to load the latest customer ledger.");
-        setIsLoadingDetail(false);
-        return;
-      }
-      if (!result.customer) {
-        setCustomer({
-          id: "",
-          name: saleCustomer.name,
-          phone_number: saleCustomer.phoneNumber,
-          total_balance: 0,
-          latest_transaction_at: "",
-        });
-        setError("The sale is saved. Its cloud ledger will appear after synchronization.");
-        setIsLoadingDetail(false);
-        return;
-      }
-      setCustomer(result.customer);
-      setCustomers((current) => [
-        result.customer!,
-        ...current.filter((item) => item.id !== result.customer!.id),
-      ]);
-      setEntries(result.entries || []);
-      setTotalLiters(result.total_liters || 0);
-      setIsLoadingDetail(false);
+  const directoryCustomers = useMemo(() => {
+    const merged = new Map<string, CustomerDirectoryEntry>();
+    const cloudByName = new Map<string, string>();
+    for (const cloudCustomer of customers) {
+      const key = getCustomerKey(cloudCustomer.name, cloudCustomer.phone_number || "");
+      merged.set(key, cloudCustomer);
+      cloudByName.set(cloudCustomer.name.trim().toLocaleLowerCase(), key);
     }
 
-    void openLatestSaleLedger();
-  }, [newSaleCustomer]);
+    const offlineCustomersById = new Map(
+      (offlineDirectory?.offlineCustomers || []).map((offlineCustomer) => [
+        offlineCustomer.id,
+        offlineCustomer,
+      ])
+    );
+    const localGroups = new Map<string, {
+      name: string;
+      phoneNumber: string;
+      transactions: PendingLedgerTransaction[];
+      customers: Map<string, CustomerRecord>;
+    }>();
+
+    for (const transaction of offlineDirectory?.ledgerTransactions || []) {
+      const localCustomer = transaction.customer_id
+        ? offlineCustomersById.get(transaction.customer_id)
+        : undefined;
+      const name = localCustomer?.name || transaction.customer_name || "Walk-in Customer";
+      const phoneNumber = localCustomer?.phone_number || transaction.phone_number || "";
+      const key = getCustomerKey(name, phoneNumber);
+      const group = localGroups.get(key) || {
+        name,
+        phoneNumber,
+        transactions: [],
+        customers: new Map<string, CustomerRecord>(),
+      };
+      group.transactions.push(transaction);
+      if (localCustomer) group.customers.set(localCustomer.id, localCustomer);
+      localGroups.set(key, group);
+    }
+
+    for (const [key, group] of localGroups) {
+      const cloudKey = merged.has(key)
+        ? key
+        : group.phoneNumber
+          ? undefined
+          : cloudByName.get(group.name.trim().toLocaleLowerCase());
+      const existing = cloudKey ? merged.get(cloudKey) : undefined;
+      const latestLocalTransaction = group.transactions.reduce(
+        (latest, transaction) => transaction.created_at > latest ? transaction.created_at : latest,
+        ""
+      );
+
+      if (existing && cloudKey) {
+        const pendingDelta = group.transactions.reduce((total, transaction) => {
+          if (transaction.sync_status !== "pending" && transaction.sync_status !== "failed") {
+            return total;
+          }
+          return total + (transaction.transaction_type === "credit" ? transaction.amount : -transaction.amount);
+        }, 0);
+        merged.set(cloudKey, {
+          ...existing,
+          total_balance: existing.total_balance + pendingDelta,
+          latest_transaction_at:
+            latestLocalTransaction > existing.latest_transaction_at
+              ? latestLocalTransaction
+              : existing.latest_transaction_at,
+        });
+        continue;
+      }
+
+      const localCustomers = Array.from(group.customers.values());
+      const totalBalance = localCustomers.length > 0
+        ? localCustomers.reduce((total, localCustomer) => total + localCustomer.total_balance, 0)
+        : group.transactions.reduce(
+            (total, transaction) => total + (transaction.transaction_type === "credit" ? transaction.amount : -transaction.amount),
+            0
+          );
+      merged.set(key, {
+        id: localCustomers[0]?.id || group.transactions[0].customer_id || `offline:${key}`,
+        name: group.name,
+        phone_number: group.phoneNumber,
+        total_balance: totalBalance,
+        latest_transaction_at: latestLocalTransaction,
+      });
+    }
+
+    return Array.from(merged.values()).sort((first, second) =>
+      second.latest_transaction_at.localeCompare(first.latest_transaction_at)
+    );
+  }, [customers, offlineDirectory]);
 
   function markReceived(entryId: string) {
     setError("");
@@ -157,7 +212,7 @@ export default function WorkerCustomerLedger({
     });
   }
 
-  const filteredCustomers = customers.filter((item) => {
+  const filteredCustomers = directoryCustomers.filter((item) => {
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.name.toLocaleLowerCase().includes(query) ||
       item.phone_number.toLocaleLowerCase().includes(query);

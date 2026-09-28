@@ -22,10 +22,11 @@ export async function syncLedgerToCloudService(
 
     let existingCustomerIds = new Set<string>();
     if (providedUuids.length > 0) {
-      const { data: existingCustomers } = await supabase
+      const { data: existingCustomers, error } = await supabase
         .from("customers")
         .select("id")
         .in("id", providedUuids);
+      if (error) return { success: false, error: `Customer lookup failed: ${error.message}` };
       existingCustomerIds = new Set((existingCustomers || []).map((customer) => customer.id));
     }
 
@@ -33,54 +34,111 @@ export async function syncLedgerToCloudService(
       (entry) => !entry.customer_id || !existingCustomerIds.has(entry.customer_id)
     );
     const phoneNumbersToResolve = Array.from(
-      new Set(unresolvedEntries.map((entry) => entry.phone_number?.trim()).filter(Boolean))
+      new Set(
+        unresolvedEntries
+          .map((entry) => entry.phone_number?.trim())
+          .filter((phone): phone is string => Boolean(phone))
+      )
     ) as string[];
     const phoneToIdMap = new Map<string, string>();
+    const nameToIdMap = new Map<string, string>();
     if (phoneNumbersToResolve.length > 0) {
-      const { data: matchedByName } = await supabase
+      const { data: matchedByName, error } = await supabase
         .from("customers")
         .select("id, phone_number")
         .in("phone_number", phoneNumbersToResolve);
+      if (error) return { success: false, error: `Customer lookup failed: ${error.message}` };
 
       (matchedByName || []).forEach((customer) => {
         phoneToIdMap.set(customer.phone_number, customer.id);
       });
+    }
 
-      const missingCustomers = unresolvedEntries
-        .filter((entry) => entry.phone_number?.trim() && !phoneToIdMap.has(entry.phone_number.trim()))
-        .filter((entry, index, entries) =>
-          entries.findIndex((candidate) => candidate.phone_number?.trim() === entry.phone_number?.trim()) === index
+    const nameOnlyEntries = unresolvedEntries.filter((entry) => !entry.phone_number?.trim());
+    const customerNamesToResolve = Array.from(
+      new Set(nameOnlyEntries.map((entry) => entry.customer_name?.trim() || "Walk-in Customer"))
+    );
+    if (customerNamesToResolve.length > 0) {
+      const nameLookups = await Promise.all(
+        customerNamesToResolve.map((name) =>
+          supabase
+            .from("customers")
+            .select("id, name")
+            .ilike("name", name.replace(/[\\%_]/g, "\\$&"))
         )
-        .map((entry) => ({
-          name: entry.customer_name?.trim() || "Walk-in Customer",
-          phone_number: entry.phone_number!.trim(),
-          total_balance: 0,
-          updated_at: new Date().toISOString(),
-        }));
+      );
+      for (const { data: matchedCustomers, error } of nameLookups) {
+        if (error) return { success: false, error: `Customer lookup failed: ${error.message}` };
+        (matchedCustomers || []).forEach((customer) => {
+          const normalizedName = customer.name.trim().toLowerCase();
+          if (!nameToIdMap.has(normalizedName)) {
+            nameToIdMap.set(normalizedName, customer.id);
+          }
+        });
+      }
+    }
 
+    const seenCustomerKeys = new Set<string>();
+    const missingCustomers = unresolvedEntries.flatMap((entry) => {
+      const name = entry.customer_name?.trim() || "Walk-in Customer";
+      const phone = entry.phone_number?.trim() || "";
+      const key = phone ? `phone:${phone}` : `name:${name.toLowerCase()}`;
+      const isResolved = phone
+        ? phoneToIdMap.has(phone)
+        : nameToIdMap.has(name.toLowerCase());
+      if (isResolved || seenCustomerKeys.has(key)) return [];
+      seenCustomerKeys.add(key);
+      return [{
+        name,
+        phone_number: phone,
+        total_balance: 0,
+        updated_at: new Date().toISOString(),
+      }];
+    });
+
+    if (missingCustomers.length > 0) {
       const { data: createdCustomers, error: createCustomerError } = await supabase
         .from("customers")
         .insert(missingCustomers)
-        .select("id, phone_number");
+        .select("id, phone_number, name");
 
-      if (!createCustomerError && createdCustomers) {
-        createdCustomers.forEach((customer) => {
-          phoneToIdMap.set(customer.phone_number, customer.id);
-        });
+      if (createCustomerError) {
+        const message = [createCustomerError.message, createCustomerError.details, createCustomerError.hint]
+          .filter(Boolean)
+          .join(" | ");
+        console.error("Supabase insert customers error:", message);
+        return { success: false, error: `Customer creation failed: ${message}` };
       }
+
+      (createdCustomers || []).forEach((customer) => {
+        if (customer.phone_number?.trim()) {
+          phoneToIdMap.set(customer.phone_number.trim(), customer.id);
+        } else {
+          nameToIdMap.set(customer.name.trim().toLowerCase(), customer.id);
+        }
+      });
     }
 
     for (const entry of ledgerEntries) {
       if (entry.customer_id && existingCustomerIds.has(entry.customer_id)) {
         entryCustomerMap.set(entry, entry.customer_id);
       } else if (
-        entry.phone_number &&
+        entry.phone_number?.trim() &&
         phoneToIdMap.has(entry.phone_number.trim())
       ) {
         entryCustomerMap.set(entry, phoneToIdMap.get(entry.phone_number.trim())!);
       } else {
-        entryCustomerMap.set(entry, null);
+        const customerName = entry.customer_name?.trim() || "Walk-in Customer";
+        entryCustomerMap.set(entry, nameToIdMap.get(customerName.toLowerCase()) || null);
       }
+    }
+
+    const unresolvedCustomer = ledgerEntries.find((entry) => !entryCustomerMap.get(entry));
+    if (unresolvedCustomer) {
+      return {
+        success: false,
+        error: `Could not resolve a cloud customer for "${unresolvedCustomer.customer_name?.trim() || "Walk-in Customer"}".`,
+      };
     }
 
     const workerIds = Array.from(

@@ -108,7 +108,7 @@ export async function getCustomerDirectory(): Promise<{
       .map((customer) => ({
         id: customer.id,
         name: customer.name,
-        phone_number: customer.phone_number,
+        phone_number: customer.phone_number || "",
         total_balance: Number(customer.total_balance) || 0,
         latest_transaction_at: customer.ledger_transactions[0]?.created_at || "",
       }))
@@ -138,7 +138,7 @@ export async function getCustomerLedgerById(customerId: string): Promise<Custome
   return buildCustomerLedger(supabase, {
     id: customer.id,
     name: customer.name,
-    phone_number: customer.phone_number,
+    phone_number: customer.phone_number || "",
     total_balance: Number(customer.total_balance) || 0,
   });
 }
@@ -173,7 +173,7 @@ export async function getCustomerLedgerByPhone(
   return buildCustomerLedger(supabase, {
     id: customer.id,
     name: customer.name,
-    phone_number: customer.phone_number,
+    phone_number: customer.phone_number || "",
     total_balance: Number(customer.total_balance) || 0,
   });
 }

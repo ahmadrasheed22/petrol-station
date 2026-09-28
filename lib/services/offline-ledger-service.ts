@@ -45,7 +45,7 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
 export async function addPendingLedgerTx(txData: {
   customer_id?: string;
   customer_name: string;
-  phone_number: string;
+  phone_number?: string | null;
   worker_id?: string;
   issued_by_worker?: string;
   received_by_worker?: string;
@@ -59,13 +59,16 @@ export async function addPendingLedgerTx(txData: {
   const txType = txData.transaction_type ?? "credit";
   const price = txData.price_per_liter ?? txData.applied_sp ?? 0;
   const rawCustomerName = txData.customer_name?.trim() || "Walk-in Customer";
-  const phoneNumber = txData.phone_number.trim();
-  if (!phoneNumber) throw new Error("Customer phone number is required.");
+  const phoneNumber = txData.phone_number?.trim() || "";
 
   let customerId = txData.customer_id;
   if (!customerId) {
     const existingCust = await db.customers
-      .filter((customer) => customer.phone_number === phoneNumber)
+      .filter((customer) =>
+        phoneNumber
+          ? customer.phone_number === phoneNumber
+          : customer.name.toLowerCase() === rawCustomerName.toLowerCase()
+      )
       .first();
 
     if (existingCust) {
