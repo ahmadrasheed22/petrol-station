@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getPumpConfig, getShiftMeterReadings } from "@/actions/pump-actions";
+import { deleteMeterReadings, getPumpConfig, getShiftMeterReadings } from "@/actions/pump-actions";
 
 interface MeterReadingRecord {
   id: string;
@@ -57,10 +57,19 @@ export default function MeterReadingsHistory({
   const [configuredFuelTypes, setConfiguredFuelTypes] = useState<string[]>([]);
   const [selectedFuelType, setSelectedFuelType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -129,6 +138,50 @@ export default function MeterReadingsHistory({
   const activeFuelTypeIndex = groupedReadings.findIndex(
     ({ fuelType }) => fuelType === activeFuelType
   );
+  const allActiveReadingsSelected = activeFuelReadings.length > 0 &&
+    activeFuelReadings.every((reading) => selectedIds.includes(reading.id));
+
+  function toggleActiveFuelSelection() {
+    const activeIds = activeFuelReadings.map((reading) => reading.id);
+    if (allActiveReadingsSelected) {
+      setSelectedIds((current) => current.filter((id) => !activeIds.includes(id)));
+    } else {
+      setSelectedIds((current) => [...new Set([...current, ...activeIds])]);
+    }
+  }
+
+  async function handleDeleteSelected() {
+    const idsToDelete = selectedIds;
+    if (idsToDelete.length === 0 || isDeleting) return;
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete these ${idsToDelete.length} records? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    setNotice(null);
+    try {
+      const result = await deleteMeterReadings(idsToDelete);
+      if (!result.success) {
+        setNotice({ type: "error", text: result.error || "Failed to delete meter readings." });
+        return;
+      }
+
+      const deletedIds = new Set(result.deletedIds);
+      setReadings((current) => current.filter((reading) => !deletedIds.has(reading.id)));
+      setSelectedIds([]);
+      setNotice({
+        type: "success",
+        text: `Deleted ${result.deletedIds.length} meter reading${result.deletedIds.length === 1 ? "" : "s"}.`,
+      });
+    } catch (err) {
+      console.error("Error deleting meter readings:", err);
+      setNotice({ type: "error", text: "Failed to delete meter readings." });
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   if (!mounted || loading) {
     return (
@@ -162,6 +215,18 @@ export default function MeterReadingsHistory({
 
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl space-y-6">
+      {notice && (
+        <div
+          role={notice.type === "error" ? "alert" : "status"}
+          className={`fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-xl ${
+            notice.type === "success"
+              ? "border-emerald-500/40 bg-zinc-950 text-emerald-300"
+              : "border-rose-500/40 bg-zinc-950 text-rose-300"
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
       <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
         <div>
           <h3 className="font-semibold text-white">Meter Readings Audit</h3>
@@ -221,9 +286,31 @@ export default function MeterReadingsHistory({
             className="space-y-3 pt-3"
           >
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-              <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                {activeFuelType} Totals
-              </h5>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                  {activeFuelType} Totals
+                </h5>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleActiveFuelSelection}
+                    disabled={activeFuelReadings.length === 0 || isDeleting}
+                    className="rounded-md border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {allActiveReadingsSelected ? "Deselect All" : "Select All"}
+                  </button>
+                  {selectedIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelected}
+                      disabled={isDeleting}
+                      className="rounded-md border border-rose-500/50 bg-rose-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-rose-500 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isDeleting ? "Deleting..." : `Delete Selected (${selectedIds.length})`}
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
                   <p className="text-xs text-zinc-500">Total Liters Dispensed</p>
@@ -290,8 +377,29 @@ export default function MeterReadingsHistory({
                 const time = formatTime(reading.recorded_at);
 
                 return (
-                  <article key={reading.id} className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-3">
-                    <div className="grid grid-cols-2 items-center gap-x-3 gap-y-2 sm:grid-cols-4 2xl:grid-cols-8">
+                  <article
+                    key={reading.id}
+                    className={`flex gap-3 rounded-lg border p-3 transition-colors ${
+                      selectedIds.includes(reading.id)
+                        ? "border-rose-500/40 bg-rose-500/5"
+                        : "border-zinc-700/50 bg-zinc-800/30"
+                    }`}
+                  >
+                    <label className="mt-1 flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(reading.id)}
+                        onChange={() => setSelectedIds((current) =>
+                          current.includes(reading.id)
+                            ? current.filter((id) => id !== reading.id)
+                            : [...current, reading.id]
+                        )}
+                        disabled={isDeleting}
+                        aria-label={`Select ${reading.machine_meters.label} reading by ${reading.profiles.name}`}
+                        className="h-4 w-4 cursor-pointer accent-rose-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed"
+                      />
+                    </label>
+                    <div className="grid min-w-0 flex-1 grid-cols-2 items-center gap-x-3 gap-y-2 sm:grid-cols-4 2xl:grid-cols-8">
                       <div className="min-w-0">
                         <p className="text-xs text-zinc-500">Worker</p>
                         <p className="truncate text-sm font-semibold text-white">{reading.profiles.name}</p>
