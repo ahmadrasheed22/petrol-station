@@ -216,7 +216,6 @@ export default function WorkerDashboardShell({
                 </section>
 
                 <DashboardStats />
-                <RecentEntries initialFilter="sale" showFilterTabs={false} userId={userId} />
               </>
             </div>
 

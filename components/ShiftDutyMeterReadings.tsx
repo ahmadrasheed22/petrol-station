@@ -590,7 +590,7 @@ export default function ShiftDutyMeterReadings({
         });
         return next;
       });
-      setMessage({ type: "success", text: "Duty ended. Local duty records and recent entries were cleared." });
+      setMessage({ type: "success", text: "Duty ended. Local duty records were cleared." });
     } catch (err) {
       console.error("Failed to end duty:", err);
       if (localSnapshot) {
@@ -792,32 +792,6 @@ export default function ShiftDutyMeterReadings({
                 />
               </div>
             )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 border-t border-zinc-800/50 pt-4 sm:grid-cols-3">
-            {sortedFuelTypes.map((fuelType) => {
-              const fuelTotals = metersByFuelType[fuelType].reduce(
-                (totals, meter) => ({
-                  liters: totals.liters + calculateDispensed(
-                    readings[meter.id]?.openingReading || "0",
-                    readings[meter.id]?.closingReading || ""
-                  ),
-                  rupees: totals.rupees + calculateSaleAmount(readings[meter.id]),
-                }),
-                { liters: 0, rupees: 0 }
-              );
-              return (
-                <div key={fuelType} className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-4 py-3">
-                  <p className="text-xs text-zinc-400">Total {fuelType} Sold</p>
-                  <p className="mt-1 text-lg font-bold text-white">
-                    {fuelTotals.liters.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-emerald-300">
-                    Rs. {fuelTotals.rupees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-              );
-            })}
           </div>
 
           <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2">

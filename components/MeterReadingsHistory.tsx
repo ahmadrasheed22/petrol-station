@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getShiftMeterReadings } from "@/actions/pump-actions";
+import { getPumpConfig, getShiftMeterReadings } from "@/actions/pump-actions";
 
 interface MeterReadingRecord {
   id: string;
@@ -54,6 +54,8 @@ export default function MeterReadingsHistory({
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [readings, setReadings] = useState<MeterReadingRecord[]>([]);
+  const [configuredFuelTypes, setConfiguredFuelTypes] = useState<string[]>([]);
+  const [selectedFuelType, setSelectedFuelType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,12 +69,22 @@ export default function MeterReadingsHistory({
       setLoading(true);
       setError(null);
       try {
-        const result = await getShiftMeterReadings(userId, limit);
+        const [result, config] = await Promise.all([
+          getShiftMeterReadings(userId, limit),
+          getPumpConfig(),
+        ]);
         if (result.success) {
           setReadings(result.data as MeterReadingRecord[]);
         } else {
           setError(result.error || "Failed to load readings");
         }
+        setConfiguredFuelTypes([
+          ...new Set(
+            config.meters
+              .filter((meter) => meter.status === "active" && meter.fuel_type)
+              .map((meter) => meter.fuel_type)
+          ),
+        ]);
       } catch (err) {
         console.error("Error loading meter readings:", err);
         setError("Failed to load meter readings");
@@ -87,6 +99,10 @@ export default function MeterReadingsHistory({
   const groupedReadings = useMemo(() => {
     const grouped: Record<string, MeterReadingRecord[]> = {};
 
+    configuredFuelTypes.forEach((fuelType) => {
+      grouped[fuelType] = [];
+    });
+
     readings.forEach((reading) => {
       const fuelType = reading.machine_meters.fuel_type || "Other";
       if (!grouped[fuelType]) {
@@ -97,14 +113,22 @@ export default function MeterReadingsHistory({
 
     const orderedFuelTypes = [
       ...fuelTypeOrder,
-      ...Object.keys(grouped).filter((fuelType) => !fuelTypeOrder.includes(fuelType)),
+      ...Object.keys(grouped).filter((fuelType) => !fuelTypeOrder.includes(fuelType)).sort(),
     ];
 
-    return orderedFuelTypes.map((fuelType) => ({
+    return orderedFuelTypes.filter((fuelType) => grouped[fuelType]).map((fuelType) => ({
       fuelType,
       readings: grouped[fuelType] || [],
     }));
-  }, [readings]);
+  }, [configuredFuelTypes, readings]);
+
+  const activeFuelGroup = groupedReadings.find(({ fuelType }) => fuelType === selectedFuelType)
+    ?? groupedReadings[0];
+  const activeFuelType = activeFuelGroup?.fuelType ?? "";
+  const activeFuelReadings = activeFuelGroup?.readings ?? [];
+  const activeFuelTypeIndex = groupedReadings.findIndex(
+    ({ fuelType }) => fuelType === activeFuelType
+  );
 
   if (!mounted || loading) {
     return (
@@ -127,11 +151,11 @@ export default function MeterReadingsHistory({
     );
   }
 
-  if (readings.length === 0) {
+  if (groupedReadings.length === 0) {
     return (
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md shadow-xl">
         <h3 className="font-semibold text-zinc-200 mb-2">Meter Readings Audit</h3>
-        <p className="text-sm text-zinc-400">No meter readings recorded yet.</p>
+        <p className="text-sm text-zinc-400">No fuel products or meter readings are configured.</p>
       </div>
     );
   }
@@ -153,14 +177,80 @@ export default function MeterReadingsHistory({
         </svg>
       </div>
 
-      <div className="space-y-6">
-        {groupedReadings.map(({ fuelType, readings: fuelReadings }) => (
-          <section key={fuelType} className="space-y-3">
+      <div>
+        <div
+          className="flex gap-2 overflow-x-auto border-b border-zinc-800 pb-2"
+          role="tablist"
+          aria-label="Fuel type"
+        >
+          {groupedReadings.map(({ fuelType, readings: fuelReadings }, index) => {
+            const isSelected = activeFuelGroup?.fuelType === fuelType;
+            const activeTabClass = fuelType === "Petrol"
+              ? "border-amber-400 bg-amber-500/10 text-amber-300"
+              : fuelType === "Diesel"
+                ? "border-rose-400 bg-rose-500/10 text-rose-300"
+                : "border-cyan-400 bg-cyan-500/10 text-cyan-300";
+
+            return (
+              <button
+                key={fuelType}
+                type="button"
+                role="tab"
+                id={`fuel-tab-${index}`}
+                aria-selected={isSelected}
+                aria-controls={`fuel-panel-${index}`}
+                onClick={() => setSelectedFuelType(fuelType)}
+                className={`shrink-0 rounded-t-lg border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${
+                  isSelected
+                    ? activeTabClass
+                    : "border-transparent text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                }`}
+              >
+                {fuelType}
+                <span className="ml-2 text-xs text-zinc-500">{fuelReadings.length}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {activeFuelGroup && (
+          <section
+            id={`fuel-panel-${activeFuelTypeIndex}`}
+            role="tabpanel"
+            aria-labelledby={`fuel-tab-${activeFuelTypeIndex}`}
+            className="space-y-3 pt-3"
+          >
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                {activeFuelType} Totals
+              </h5>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
+                  <p className="text-xs text-zinc-500">Total Liters Dispensed</p>
+                  <p className="mt-0.5 text-base font-bold text-white">
+                    {activeFuelReadings.reduce((total, reading) => total + Number(reading.liters_dispensed || 0), 0).toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} L
+                  </p>
+                </div>
+                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
+                  <p className="text-xs text-zinc-500">Total Amount (Rs)</p>
+                  <p className="mt-0.5 text-base font-bold text-emerald-300">
+                    Rs. {activeFuelReadings.reduce((total, reading) => total + Number(reading.total_amount || 0), 0).toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div
               className={`rounded-lg border px-4 py-3 ${
-                fuelType === "Petrol"
+                activeFuelType === "Petrol"
                   ? "border-amber-500/30 bg-amber-500/5"
-                  : fuelType === "Diesel"
+                  : activeFuelType === "Diesel"
                   ? "border-red-500/30 bg-red-500/5"
                   : "border-cyan-500/30 bg-cyan-500/5"
               }`}
@@ -169,17 +259,17 @@ export default function MeterReadingsHistory({
                 <div>
                   <h4
                     className={`text-sm font-semibold ${
-                      fuelType === "Petrol"
+                      activeFuelType === "Petrol"
                         ? "text-amber-400"
-                        : fuelType === "Diesel"
+                        : activeFuelType === "Diesel"
                         ? "text-red-400"
                         : "text-cyan-400"
                     }`}
                   >
-                    {fuelType}
+                    {activeFuelType}
                   </h4>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">
-                    {fuelReadings.length} record(s)
+                    {activeFuelReadings.length} record(s)
                   </p>
                 </div>
                 <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
@@ -188,87 +278,58 @@ export default function MeterReadingsHistory({
               </div>
             </div>
 
-            <div className="space-y-3">
-              {fuelReadings.length === 0 ? (
+            <div className="space-y-2">
+              {activeFuelReadings.length === 0 ? (
                 <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-4 text-sm text-zinc-500">
-                  No {fuelType} readings in this window.
+                  No {activeFuelType} readings in this window.
                 </div>
               ) : null}
 
-              {fuelReadings.map((reading) => {
+              {activeFuelReadings.map((reading) => {
                 const date = formatDate(reading.recorded_at);
                 const time = formatTime(reading.recorded_at);
 
                 return (
-                  <article key={reading.id} className="rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-4">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">Worker</p>
-                          <p className="text-xl font-semibold text-white">{reading.profiles.name}</p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-4 text-sm">
-                          <div className="rounded-xl border border-zinc-700/60 bg-zinc-950/50 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Date</p>
-                            <p className="text-lg font-bold text-zinc-100">{date}</p>
-                          </div>
-                          <div className="rounded-xl border border-zinc-700/60 bg-zinc-950/50 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Time</p>
-                            <p className="font-mono text-lg font-semibold text-zinc-100">{time}</p>
-                          </div>
-                        </div>
-
-                        <div className="text-xs text-zinc-400">
-                          Meter {reading.machine_meters.label} <span className="text-zinc-600">({reading.machine_meters.meter_number})</span>
-                        </div>
+                  <article key={reading.id} className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-3">
+                    <div className="grid grid-cols-2 items-center gap-x-3 gap-y-2 sm:grid-cols-4 2xl:grid-cols-8">
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Worker</p>
+                        <p className="truncate text-sm font-semibold text-white">{reading.profiles.name}</p>
                       </div>
-
-                      <div className="flex flex-col items-start gap-2 md:items-end">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                            reading.machine_meters.fuel_type === "Petrol"
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                              : reading.machine_meters.fuel_type === "Diesel"
-                              ? "bg-red-500/10 text-red-400 border-red-500/20"
-                              : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
-                          }`}
-                        >
-                          {reading.machine_meters.fuel_type}
-                        </span>
-                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-right">
-                          <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-300/80">Liters Dispensed</p>
-                          <p className="text-xl font-bold text-emerald-300">
-                            {reading.liters_dispensed.toFixed(2)}L
-                          </p>
-                        </div>
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Date / Time</p>
+                        <p className="truncate font-mono text-xs text-zinc-200">{date} {time}</p>
                       </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                      <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Opening</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">
-                          {reading.opening_reading.toFixed(2)}
-                        </div>
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Nozzle / Fuel</p>
+                        <p className="truncate text-sm text-zinc-200">
+                          {reading.machine_meters.label} <span className="text-zinc-500">({reading.machine_meters.meter_number})</span>
+                        </p>
+                        <p className="truncate text-xs text-zinc-400">{reading.machine_meters.fuel_type}</p>
                       </div>
-                      <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Closing</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">
-                          {reading.closing_reading.toFixed(2)}
-                        </div>
+                      <div>
+                        <p className="text-xs text-zinc-500">Opening</p>
+                        <p className="font-mono text-sm font-medium text-zinc-100">{reading.opening_reading.toFixed(2)}</p>
                       </div>
-                      <div className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 py-2">
-                        <span className="text-zinc-500 text-[11px] uppercase tracking-[0.18em]">Price / Liter</span>
-                        <div className="font-mono text-lg font-semibold text-zinc-100">
+                      <div>
+                        <p className="text-xs text-zinc-500">Closing</p>
+                        <p className="font-mono text-sm font-medium text-zinc-100">{reading.closing_reading.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500">Price / Liter</p>
+                        <p className="truncate font-mono text-sm text-zinc-100">
                           Rs. {Number(reading.price_per_liter || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })}
-                        </div>
+                        </p>
                       </div>
-                      <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
-                        <span className="text-emerald-300/80 text-[11px] uppercase tracking-[0.18em]">Total Amount</span>
-                        <div className="font-mono text-xl font-bold text-emerald-300">
+                      <div>
+                        <p className="text-xs text-zinc-500">Liters</p>
+                        <p className="font-mono text-sm font-semibold text-emerald-300">{reading.liters_dispensed.toFixed(2)} L</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500">Amount</p>
+                        <p className="truncate font-mono text-sm font-semibold text-emerald-300">
                           Rs. {Number(reading.total_amount || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })}
-                        </div>
+                        </p>
                       </div>
                     </div>
                   </article>
@@ -276,7 +337,7 @@ export default function MeterReadingsHistory({
               })}
             </div>
           </section>
-        ))}
+        )}
       </div>
     </div>
   );
