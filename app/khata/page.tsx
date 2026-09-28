@@ -2,7 +2,7 @@ import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import CreditSaleForm from "@/components/CreditSaleForm";
-import CustomerBalances from "@/components/CustomerBalances";
+import WorkerCustomerLedger from "@/components/WorkerCustomerLedger";
 import RecentEntries from "@/components/RecentEntries";
 import DutyAccessGuard from "@/components/DutyAccessGuard";
 import { redirect } from "next/navigation";
@@ -78,7 +78,7 @@ export default async function KhataPage() {
                   Customer Ledger (Khata)
                 </h1>
                 <p className="text-xs text-zinc-400">
-                  Offline Credit Sales & Balance Tracking
+                  Cloud customer ledger and balance tracking
                 </p>
               </div>
             </div>
@@ -127,8 +127,8 @@ export default async function KhataPage() {
                 Khata & Customer Credit Management
               </h2>
               <p className="text-sm text-zinc-400 mt-1 max-w-2xl">
-                Log customer fuel credit sales directly into IndexedDB without internet. Balances
-                update locally in real time and automatically synchronize to Supabase when online.
+                Search shared customer histories and record payments for owner approval. New credit
+                sales continue to synchronize from this terminal to Supabase.
               </p>
             </div>
 
@@ -141,10 +141,10 @@ export default async function KhataPage() {
           </div>
         </div>
 
-        {/* Khata Operational Grid: Form & Customer Balances */}
+        {/* Khata Operational Grid: Form & Customer Ledger */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <CreditSaleForm />
-          <CustomerBalances />
+          <WorkerCustomerLedger />
         </div>
 
         {/* Recent Entries: Today's Logged Expenses & Credit Sales (Fraud-Protected & Immutable) */}

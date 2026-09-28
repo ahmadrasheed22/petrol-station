@@ -11,7 +11,7 @@ import ShiftDutyMeterReadings from "@/components/ShiftDutyMeterReadings";
 import SyncIndicator from "@/components/SyncIndicator";
 import TankStatus from "@/components/TankStatus";
 import CreditSaleForm from "@/components/CreditSaleForm";
-import CustomerBalances from "@/components/CustomerBalances";
+import WorkerCustomerLedger from "@/components/WorkerCustomerLedger";
 import { db } from "@/lib/offline-db";
 
 export type WorkerView = "duty" | "home" | "expenses" | "khata" | "inventory";
@@ -237,7 +237,7 @@ export default function WorkerDashboardShell({
             {visibleView === "khata" && (
               <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
                 <CreditSaleForm />
-                <CustomerBalances />
+                <WorkerCustomerLedger />
               </div>
             )}
 
