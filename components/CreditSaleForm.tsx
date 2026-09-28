@@ -15,7 +15,11 @@ const DEFAULT_PRODUCTS: Product[] = [
   { id: "33333333-3333-4333-8333-333333333333", name: "Hi-Octane", current_sp: 300, current_cp: 285 },
 ];
 
-export default function CreditSaleForm() {
+export default function CreditSaleForm({
+  onSaleRecorded,
+}: {
+  onSaleRecorded?: (customer: { name: string; phoneNumber: string }) => void;
+}) {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerName, setCustomerName] = useState<string>("");
@@ -146,6 +150,7 @@ export default function CreditSaleForm() {
         applied_sp: pricePerLiter,
         transaction_type: "credit",
       });
+      onSaleRecorded?.({ name: targetCustomerName, phoneNumber: targetPhoneNumber });
 
       const isOnline = typeof navigator !== "undefined" && navigator.onLine;
       setSuccessMsg(

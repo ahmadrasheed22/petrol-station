@@ -27,6 +27,106 @@ export interface CustomerLedgerResult {
   total_liters?: number;
 }
 
+export interface CustomerDirectoryEntry {
+  id: string;
+  name: string;
+  phone_number: string;
+  total_balance: number;
+}
+
+type CustomerSummary = CustomerDirectoryEntry;
+
+async function buildCustomerLedger(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  customer: CustomerSummary
+): Promise<CustomerLedgerResult> {
+  const { data: ledgerRows, error: ledgerError } = await supabase
+    .from("ledger_transactions")
+    .select("id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at")
+    .eq("customer_id", customer.id)
+    .order("created_at", { ascending: false });
+
+  if (ledgerError) {
+    return { success: false, error: ledgerError.message };
+  }
+
+  const entries: CustomerLedgerEntry[] = (ledgerRows || []).map((row) => ({
+    id: row.id,
+    customer_name: row.customer_name,
+    liters: Number(row.liters) || 0,
+    amount: Number(row.amount) || 0,
+    applied_sp: Number(row.applied_sp) || 0,
+    transaction_type: row.transaction_type as "credit" | "payment",
+    status: row.status as CustomerLedgerEntry["status"],
+    created_at: row.created_at,
+  }));
+
+  return {
+    success: true,
+    customer: {
+      ...customer,
+      total_balance: Number(customer.total_balance) || 0,
+    },
+    entries,
+    total_liters: entries.reduce(
+      (total, entry) => total + (entry.transaction_type === "credit" ? entry.liters : 0),
+      0
+    ),
+  };
+}
+
+export async function getCustomerDirectory(): Promise<{
+  success: boolean;
+  error?: string;
+  customers?: CustomerDirectoryEntry[];
+}> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth) return { success: false, error: "Sign in to view customer ledgers." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("customers")
+    .select("id, name, phone_number, total_balance, ledger_transactions!inner(id)")
+    .order("name", { ascending: true });
+
+  if (error) return { success: false, error: error.message };
+
+  return {
+    success: true,
+    customers: (data || []).map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      phone_number: customer.phone_number,
+      total_balance: Number(customer.total_balance) || 0,
+    })),
+  };
+}
+
+export async function getCustomerLedgerById(customerId: string): Promise<CustomerLedgerResult> {
+  const auth = await getAuthenticatedUserProfile();
+  if (!auth) return { success: false, error: "Sign in to view customer ledgers." };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerId)) {
+    return { success: false, error: "Invalid customer." };
+  }
+
+  const supabase = await createClient();
+  const { data: customer, error } = await supabase
+    .from("customers")
+    .select("id, name, phone_number, total_balance")
+    .eq("id", customerId)
+    .maybeSingle();
+
+  if (error) return { success: false, error: error.message };
+  if (!customer) return { success: true, entries: [], total_liters: 0 };
+
+  return buildCustomerLedger(supabase, {
+    id: customer.id,
+    name: customer.name,
+    phone_number: customer.phone_number,
+    total_balance: Number(customer.total_balance) || 0,
+  });
+}
+
 export async function getCustomerLedgerByPhone(
   phoneNumber: string
 ): Promise<CustomerLedgerResult> {
@@ -54,41 +154,12 @@ export async function getCustomerLedgerByPhone(
     return { success: true, entries: [], total_liters: 0 };
   }
 
-  const { data: ledgerRows, error: ledgerError } = await supabase
-    .from("ledger_transactions")
-    .select("id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at")
-    .eq("customer_id", customer.id)
-    .order("created_at", { ascending: false });
-
-  if (ledgerError) {
-    return { success: false, error: ledgerError.message };
-  }
-
-  const entries: CustomerLedgerEntry[] = (ledgerRows || []).map((row) => ({
-    id: row.id,
-    customer_name: row.customer_name,
-    liters: Number(row.liters) || 0,
-    amount: Number(row.amount) || 0,
-    applied_sp: Number(row.applied_sp) || 0,
-    transaction_type: row.transaction_type as "credit" | "payment",
-    status: row.status as CustomerLedgerEntry["status"],
-    created_at: row.created_at,
-  }));
-
-  return {
-    success: true,
-    customer: {
-      id: customer.id,
-      name: customer.name,
-      phone_number: customer.phone_number,
-      total_balance: Number(customer.total_balance) || 0,
-    },
-    entries,
-    total_liters: entries.reduce(
-      (total, entry) => total + (entry.transaction_type === "credit" ? entry.liters : 0),
-      0
-    ),
-  };
+  return buildCustomerLedger(supabase, {
+    id: customer.id,
+    name: customer.name,
+    phone_number: customer.phone_number,
+    total_balance: Number(customer.total_balance) || 0,
+  });
 }
 
 export async function markLedgerPaymentReceived(

@@ -38,6 +38,11 @@ export default function WorkerDashboardShell({
   isOwnerPreview?: boolean;
 }) {
   const [activeView, setActiveView] = useState<WorkerView>("duty");
+  const [newSaleCustomer, setNewSaleCustomer] = useState<{
+    name: string;
+    phoneNumber: string;
+    sequence: number;
+  } | null>(null);
   const hasActiveDuty = useLiveQuery(
     async () => Boolean(await db.shifts.where("status").equals("active").first()),
     [],
@@ -236,8 +241,15 @@ export default function WorkerDashboardShell({
 
             {visibleView === "khata" && (
               <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
-                <CreditSaleForm />
-                <WorkerCustomerLedger />
+                <CreditSaleForm
+                  onSaleRecorded={(customer) =>
+                    setNewSaleCustomer((previous) => ({
+                      ...customer,
+                      sequence: (previous?.sequence ?? 0) + 1,
+                    }))
+                  }
+                />
+                <WorkerCustomerLedger newSaleCustomer={newSaleCustomer} />
               </div>
             )}
 
