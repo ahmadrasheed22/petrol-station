@@ -100,7 +100,7 @@ export default function MeterReadingsHistory({
       ...Object.keys(grouped).filter((fuelType) => !fuelTypeOrder.includes(fuelType)),
     ];
 
-    return orderedFuelTypes.map((fuelType) => ({
+    return orderedFuelTypes.filter((fuelType) => grouped[fuelType]).map((fuelType) => ({
       fuelType,
       readings: grouped[fuelType] || [],
     }));
@@ -274,6 +274,32 @@ export default function MeterReadingsHistory({
                   </article>
                 );
               })}
+            </div>
+
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                {fuelType} Totals
+              </h5>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Liters Dispensed</p>
+                  <p className="mt-1 text-lg font-bold text-white">
+                    {fuelReadings.reduce((total, reading) => total + Number(reading.liters_dispensed || 0), 0).toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} L
+                  </p>
+                </div>
+                <div className="rounded-lg border border-zinc-700/50 bg-zinc-950/60 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Amount (Rs)</p>
+                  <p className="mt-1 text-lg font-bold text-emerald-300">
+                    Rs. {fuelReadings.reduce((total, reading) => total + Number(reading.total_amount || 0), 0).toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
+                </div>
+              </div>
             </div>
           </section>
         ))}

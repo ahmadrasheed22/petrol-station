@@ -41,6 +41,17 @@ export default function ShiftDutyFuelTypeSection({
   calculateDispensed,
   calculateSaleAmount,
 }: ShiftDutyFuelTypeSectionProps) {
+  const totals = meters.reduce(
+    (current, meter) => ({
+      liters: current.liters + calculateDispensed(
+        readings[meter.id]?.openingReading || "0",
+        readings[meter.id]?.closingReading || ""
+      ),
+      rupees: current.rupees + calculateSaleAmount(readings[meter.id]),
+    }),
+    { liters: 0, rupees: 0 }
+  );
+
   return (
     <section className="space-y-4">
       <div
@@ -160,6 +171,16 @@ export default function ShiftDutyFuelTypeSection({
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+        <p className="text-xs text-zinc-400">Total {fuelType} Sold</p>
+        <p className="mt-1 text-lg font-bold text-white">
+          {totals.liters.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L
+        </p>
+        <p className="mt-1 text-sm font-semibold text-emerald-300">
+          Rs. {totals.rupees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
       </div>
     </section>
   );
