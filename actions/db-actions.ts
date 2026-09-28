@@ -50,12 +50,16 @@ export interface ShiftPayload {
 export interface LedgerPayload {
   customer_id?: string;
   customer_name?: string;
+  phone_number?: string;
   worker_id?: string;
+  issued_by_worker?: string;
+  received_by_worker?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number;
   applied_sp?: number;
   transaction_type?: "credit" | "payment";
+  status?: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
   created_at?: string;
 }
 
@@ -208,33 +212,6 @@ export async function syncExpensesToCloud(
 ): Promise<SyncResult> {
   return syncExpensesToCloudService(expenses);
 }
-
-const KNOWN_DEFAULT_CUSTOMERS = [
-  {
-    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    name: "Malik Goods Transport",
-    vehicle_number: "LES-4589",
-    total_balance: 15400,
-  },
-  {
-    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    name: "Al-Madina Bus Service",
-    vehicle_number: "FSD-1122",
-    total_balance: 42000,
-  },
-  {
-    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    name: "Chaudhry Logistics",
-    vehicle_number: "LHE-7860",
-    total_balance: 8500,
-  },
-  {
-    id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-    name: "Haji Aslam & Sons",
-    vehicle_number: "KHI-9921",
-    total_balance: 0,
-  },
-];
 
 /**
  * Bulk insert pending ledger transactions (credit/payment) into Supabase 'ledger_transactions' table

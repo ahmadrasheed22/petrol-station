@@ -5,25 +5,25 @@ export const DEFAULT_CUSTOMERS: CustomerRecord[] = [
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     name: "Malik Goods Transport",
-    vehicle_number: "LES-4589",
+    phone_number: "",
     total_balance: 15400,
   },
   {
     id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     name: "Al-Madina Bus Service",
-    vehicle_number: "FSD-1122",
+    phone_number: "",
     total_balance: 42000,
   },
   {
     id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     name: "Chaudhry Logistics",
-    vehicle_number: "LHE-7860",
+    phone_number: "",
     total_balance: 8500,
   },
   {
     id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
     name: "Haji Aslam & Sons",
-    vehicle_number: "KHI-9921",
+    phone_number: "",
     total_balance: 0,
   },
 ];
@@ -45,7 +45,10 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
 export async function addPendingLedgerTx(txData: {
   customer_id?: string;
   customer_name: string;
+  phone_number: string;
   worker_id?: string;
+  issued_by_worker?: string;
+  received_by_worker?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number;
@@ -56,11 +59,13 @@ export async function addPendingLedgerTx(txData: {
   const txType = txData.transaction_type ?? "credit";
   const price = txData.price_per_liter ?? txData.applied_sp ?? 0;
   const rawCustomerName = txData.customer_name?.trim() || "Walk-in Customer";
+  const phoneNumber = txData.phone_number.trim();
+  if (!phoneNumber) throw new Error("Customer phone number is required.");
 
   let customerId = txData.customer_id;
   if (!customerId) {
     const existingCust = await db.customers
-      .filter((customer) => customer.name.toLowerCase() === rawCustomerName.toLowerCase())
+      .filter((customer) => customer.phone_number === phoneNumber)
       .first();
 
     if (existingCust) {
@@ -74,6 +79,7 @@ export async function addPendingLedgerTx(txData: {
       await db.customers.add({
         id: customerId,
         name: rawCustomerName,
+        phone_number: phoneNumber,
         total_balance: 0,
         created_at: now,
         updated_at: now,
@@ -84,12 +90,18 @@ export async function addPendingLedgerTx(txData: {
   const id = await db.pendingLedgerTransactions.add({
     customer_id: customerId,
     customer_name: rawCustomerName,
+    phone_number: phoneNumber,
     worker_id: txData.worker_id,
+    issued_by_worker:
+      txData.issued_by_worker ?? (txType === "credit" ? txData.worker_id : undefined),
+    received_by_worker:
+      txData.received_by_worker ?? (txType === "payment" ? txData.worker_id : undefined),
     liters: txData.liters,
     amount: txData.amount,
     price_per_liter: price,
     applied_sp: price,
     transaction_type: txType,
+    status: txType === "credit" ? "UNPAID" : "PENDING_APPROVAL",
     sync_status: "pending",
     created_at: now,
   });
@@ -190,6 +202,7 @@ export async function updatePendingLedgerTx(
             await db.customers.add({
               id: newCustomerId,
               name: trimmedName,
+              phone_number: oldTx.phone_number,
               total_balance: oldTx.transaction_type === "credit" ? data.amount : -data.amount,
               created_at: now,
               updated_at: now,

@@ -75,7 +75,7 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
     {
       label: "Khata Ledger",
       sublabel: "Customer Udhar",
-      href: "/khata",
+      href: "/admin/khata",
       icon: (
         <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -138,7 +138,7 @@ export default function AdminNav({ ownerName, isServiceRoleReady }: AdminNavProp
     "/admin/tanker-arrivals": 5,
     "/admin/workers": 6,
     "/admin/pump-config": 7,
-    "/khata": 8,
+    "/admin/khata": 8,
   };
   const orderedNavLinks = [...navLinks].sort(
     (first, second) => navigationOrder[first.href] - navigationOrder[second.href]

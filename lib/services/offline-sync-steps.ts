@@ -131,12 +131,16 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
     return {
       customer_id: transaction.customer_id,
       customer_name: transaction.customer_name,
+      phone_number: transaction.phone_number,
       worker_id: transaction.worker_id,
+      issued_by_worker: transaction.issued_by_worker,
+      received_by_worker: transaction.received_by_worker,
       liters: transaction.liters,
       amount: transaction.amount,
       price_per_liter: price,
       applied_sp: price,
       transaction_type: transaction.transaction_type,
+      status: transaction.status,
       created_at: transaction.created_at,
     };
   });

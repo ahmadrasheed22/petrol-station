@@ -17,6 +17,10 @@ export default async function KhataPage() {
 
   const { user, profile } = authData;
 
+  if (profile.role === "owner") {
+    redirect("/admin/khata");
+  }
+
   return (
     <DutyAccessGuard role={profile.role}>
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
@@ -89,9 +93,7 @@ export default async function KhataPage() {
                 </span>
                 <span
                   className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                    profile.role === "owner"
-                      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                      : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                    "bg-blue-500/10 text-blue-400 border-blue-500/20"
                   }`}
                 >
                   {profile.role}

@@ -12,6 +12,7 @@ export interface CreditSaleProduct {
 interface CreditSaleFieldsProps {
   products: CreditSaleProduct[];
   customerName: string;
+  phoneNumber: string;
   selectedProductId: string;
   litersStr: string;
   pricePerLiterStr: string;
@@ -21,6 +22,7 @@ interface CreditSaleFieldsProps {
   calculatedTotal: number;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onCustomerNameChange: (value: string) => void;
+  onPhoneNumberChange: (value: string) => void;
   onProductChange: (value: string) => void;
   onLitersChange: (value: string) => void;
   onPricePerLiterChange: (value: string) => void;
@@ -31,6 +33,7 @@ interface CreditSaleFieldsProps {
 export default function CreditSaleFields({
   products,
   customerName,
+  phoneNumber,
   selectedProductId,
   litersStr,
   pricePerLiterStr,
@@ -40,6 +43,7 @@ export default function CreditSaleFields({
   calculatedTotal,
   onSubmit,
   onCustomerNameChange,
+  onPhoneNumberChange,
   onProductChange,
   onLitersChange,
   onPricePerLiterChange,
@@ -47,6 +51,7 @@ export default function CreditSaleFields({
   onToggleCustomAmount,
 }: CreditSaleFieldsProps) {
   const productSelectId = useId();
+  const phoneInputId = useId();
   const litersInputId = useId();
   const priceInputId = useId();
   const amountInputId = useId();
@@ -73,6 +78,23 @@ export default function CreditSaleFields({
       </div>
 
       <div>
+        <label htmlFor={phoneInputId} className="block text-xs font-medium text-zinc-400 mb-1.5">
+          Customer Phone Number
+        </label>
+        <input
+          id={phoneInputId}
+          name="phone_number"
+          type="tel"
+          autoComplete="tel"
+          value={phoneNumber}
+          onChange={(event) => onPhoneNumberChange(event.target.value)}
+          placeholder="e.g. 03XX XXXXXXX"
+          className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+          required
+        />
+      </div>
+
+      <div>
         <label htmlFor={productSelectId} className="block text-xs font-medium text-zinc-400 mb-1.5">
           Fuel Product
         </label>
@@ -89,7 +111,7 @@ export default function CreditSaleFields({
           ) : (
             products.map((product) => (
               <option key={product.id} value={product.id}>
-                {product.name} {product.current_sp ? `(Standard: Rs. ${product.current_sp}/L)` : ""}
+                {product.name}
               </option>
             ))
           )}

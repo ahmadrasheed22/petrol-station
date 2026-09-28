@@ -38,8 +38,8 @@ Fuel prices change frequently. **DO NOT** calculate historical totals using a dy
 2. **Products:** `id`, `name` (Petrol, Diesel, Hi-Octane), `current_sp`, `current_cp`.
 3. **Shifts:** `id`, `worker_id`, `start_time`, `end_time`.
 4. **Meter_Readings (Sales):** `id`, `shift_id`, `product_id`, `opening_meter`, `closing_meter`, `total_liters`, `applied_sp`, `applied_cp`.
-5. **Customers:** `id`, `name`, `vehicle_number`, `total_balance`.
-6. **Ledger_Transactions (Udhar):** `id`, `customer_id`, `worker_id`, `liters`, `amount`, `applied_sp`, `transaction_type` (credit/payment).
+5. **Customers:** `id`, `name`, required `phone_number`, `total_balance`.
+6. **Ledger_Transactions (Udhar):** `id`, `customer_id`, `issued_by_worker`, `received_by_worker`, `liters`, `amount`, `applied_sp`, `transaction_type` (credit/payment), and status (`UNPAID`, `PENDING_APPROVAL`, or `SETTLED`).
 7. **Expenses:** `id`, `shift_id`, `amount`, `category`, `description`.
 8. **Inventory_Arrivals:** `id`, `product_id`, `billed_liters`, `actual_received_liters`, `cost_per_liter`.
 
