@@ -103,6 +103,7 @@ export default function WorkerCustomerLedger({
           name: saleCustomer.name,
           phone_number: saleCustomer.phoneNumber,
           total_balance: 0,
+          latest_transaction_at: "",
         });
         setError(result.error || "Unable to load the latest customer ledger.");
         setIsLoadingDetail(false);
@@ -114,6 +115,7 @@ export default function WorkerCustomerLedger({
           name: saleCustomer.name,
           phone_number: saleCustomer.phoneNumber,
           total_balance: 0,
+          latest_transaction_at: "",
         });
         setError("The sale is saved. Its cloud ledger will appear after synchronization.");
         setIsLoadingDetail(false);
@@ -143,7 +145,13 @@ export default function WorkerCustomerLedger({
         return;
       }
       setEntries((current) => current.map((entry) =>
-        entry.id === entryId ? { ...entry, status: "PENDING_APPROVAL" } : entry
+        entry.id === entryId
+          ? {
+              ...entry,
+              status: "PENDING_APPROVAL",
+              received_by_worker_name: result.workerName || "Unknown Worker",
+            }
+          : entry
       ));
       setUpdatingId(null);
     });
@@ -244,9 +252,20 @@ export default function WorkerCustomerLedger({
                               {entry.status === "PENDING_APPROVAL" ? "Waiting for Owner Approval" : entry.status}
                             </span>
                           </div>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {new Date(entry.created_at).toLocaleString()} {entry.liters > 0 ? `· ${entry.liters.toLocaleString()} L` : ""}
+                          <p className="mt-2 text-sm font-semibold text-zinc-300">
+                            {new Date(entry.created_at).toLocaleString()}
                           </p>
+                          {entry.liters > 0 && (
+                            <p className="mt-1 text-xs text-zinc-500">{entry.liters.toLocaleString()} L</p>
+                          )}
+                          <p className="mt-1 text-xs text-zinc-400">
+                            Issued by: <span className="text-zinc-300">{entry.issued_by_worker_name || "Unknown Worker"}</span>
+                          </p>
+                          {entry.status === "PENDING_APPROVAL" && (
+                            <p className="mt-1 text-xs text-yellow-200">
+                              Received by: {entry.received_by_worker_name || "Unknown Worker"}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center justify-between gap-4 sm:justify-end">
                           <span className="whitespace-nowrap text-sm font-semibold text-zinc-200">Rs. {entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -283,23 +302,32 @@ export default function WorkerCustomerLedger({
           {searchQuery.trim() ? "No customers match that name or phone number." : "No customers with ledger records yet."}
         </p>
       ) : (
-        <ul className="divide-y divide-zinc-800/80 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40 transition-opacity duration-200">
+        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40 transition-opacity duration-200">
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1fr)_auto] gap-4 border-b border-zinc-800 bg-zinc-950/80 px-4 py-3 text-[10px] font-semibold uppercase text-zinc-500 sm:grid">
+            <span>Customer</span>
+            <span>Phone</span>
+            <span>Last Transaction</span>
+            <span className="text-right">Overall Balance</span>
+          </div>
+          <ul className="divide-y divide-zinc-800/80">
           {filteredCustomers.map((item) => (
             <li key={item.id}>
               <button
                 type="button"
                 onClick={() => void openCustomerById(item.id)}
-                className="grid w-full grid-cols-1 gap-2 px-4 py-4 text-left transition-colors hover:bg-zinc-800/50 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_auto] sm:items-center sm:gap-4"
+                className="grid w-full grid-cols-1 gap-2 px-4 py-4 text-left transition-colors hover:bg-zinc-800/50 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
               >
                 <span className="truncate font-semibold text-white">{item.name}</span>
                 <span className="font-mono text-xs text-zinc-400">{item.phone_number || "No phone number"}</span>
+                <span className="text-xs text-zinc-400">{item.latest_transaction_at ? new Date(item.latest_transaction_at).toLocaleString() : "Unknown date"}</span>
                 <span className="text-sm font-semibold text-amber-300 sm:text-right">
                   Rs. {item.total_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </button>
             </li>
           ))}
-        </ul>
+          </ul>
+        </div>
       ))}
     </section>
   );

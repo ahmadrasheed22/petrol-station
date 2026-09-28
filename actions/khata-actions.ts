@@ -12,6 +12,8 @@ export interface CustomerLedgerEntry {
   transaction_type: "credit" | "payment";
   status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
   created_at: string;
+  issued_by_worker_name: string;
+  received_by_worker_name: string | null;
 }
 
 export interface CustomerLedgerResult {
@@ -22,6 +24,7 @@ export interface CustomerLedgerResult {
     name: string;
     phone_number: string;
     total_balance: number;
+    latest_transaction_at: string;
   };
   entries?: CustomerLedgerEntry[];
   total_liters?: number;
@@ -32,9 +35,10 @@ export interface CustomerDirectoryEntry {
   name: string;
   phone_number: string;
   total_balance: number;
+  latest_transaction_at: string;
 }
 
-type CustomerSummary = CustomerDirectoryEntry;
+type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at">;
 
 async function buildCustomerLedger(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -42,7 +46,11 @@ async function buildCustomerLedger(
 ): Promise<CustomerLedgerResult> {
   const { data: ledgerRows, error: ledgerError } = await supabase
     .from("ledger_transactions")
-    .select("id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at")
+    .select(`
+      id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at,
+      issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
+      receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
+    `)
     .eq("customer_id", customer.id)
     .order("created_at", { ascending: false });
 
@@ -59,6 +67,8 @@ async function buildCustomerLedger(
     transaction_type: row.transaction_type as "credit" | "payment",
     status: row.status as CustomerLedgerEntry["status"],
     created_at: row.created_at,
+    issued_by_worker_name: row.issuer?.[0]?.name || "Unknown Worker",
+    received_by_worker_name: row.receiver?.[0]?.name || null,
   }));
 
   return {
@@ -66,6 +76,7 @@ async function buildCustomerLedger(
     customer: {
       ...customer,
       total_balance: Number(customer.total_balance) || 0,
+      latest_transaction_at: entries[0]?.created_at || "",
     },
     entries,
     total_liters: entries.reduce(
@@ -86,19 +97,24 @@ export async function getCustomerDirectory(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("customers")
-    .select("id, name, phone_number, total_balance, ledger_transactions!inner(id)")
-    .order("name", { ascending: true });
+    .select("id, name, phone_number, total_balance, ledger_transactions!inner(created_at)")
+    .order("created_at", { referencedTable: "ledger_transactions", ascending: false });
 
   if (error) return { success: false, error: error.message };
 
   return {
     success: true,
-    customers: (data || []).map((customer) => ({
-      id: customer.id,
-      name: customer.name,
-      phone_number: customer.phone_number,
-      total_balance: Number(customer.total_balance) || 0,
-    })),
+    customers: (data || [])
+      .map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        phone_number: customer.phone_number,
+        total_balance: Number(customer.total_balance) || 0,
+        latest_transaction_at: customer.ledger_transactions[0]?.created_at || "",
+      }))
+      .sort((first, second) =>
+        second.latest_transaction_at.localeCompare(first.latest_transaction_at)
+      ),
   };
 }
 
@@ -164,7 +180,7 @@ export async function getCustomerLedgerByPhone(
 
 export async function markLedgerPaymentReceived(
   transactionId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; workerName?: string }> {
   const auth = await getAuthenticatedUserProfile();
   if (!auth) return { success: false, error: "Sign in to record a payment." };
   if (auth.profile.role !== "worker") {
@@ -188,5 +204,5 @@ export async function markLedgerPaymentReceived(
     return { success: false, error: "This entry is no longer unpaid. Refresh the ledger." };
   }
 
-  return { success: true };
+  return { success: true, workerName: auth.profile.name || "Unknown Worker" };
 }
