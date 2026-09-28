@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/offline-db";
+import { db, type PendingExpense } from "@/lib/offline-db";
 import { addPendingExpense, updatePendingExpense } from "@/lib/services/offline-service";
 import { syncExpensesToCloud, syncShiftsToCloud } from "@/actions/db-actions";
 import ExpenseFields, { EXPENSE_CATEGORIES } from "@/components/ExpenseFields";
@@ -84,15 +84,8 @@ export default function ExpenseForm() {
     if (!validateExpense()) return;
 
     setIsSubmitting(true);
-    let localExpense: {
-      id?: number;
-      shift_id?: string;
-      amount: number;
-      category: string;
-      description?: string;
-      sync_status: "draft";
-      created_at: string;
-    } | null = null;
+    let localExpense: PendingExpense | null = null;
+    let persistedExpenseId: number | undefined;
 
     try {
       const storedExpense = savedExpenseId === null
@@ -104,13 +97,24 @@ export default function ExpenseForm() {
         amount,
         category,
         description: description.trim() || undefined,
-        sync_status: "draft",
+        sync_status: storedExpense?.sync_status ?? "draft",
         created_at: storedExpense?.created_at ?? new Date().toISOString(),
       };
 
-      if (localExpense.id !== undefined) {
-        await db.pendingExpenses.delete(localExpense.id);
+      if (localExpense.id === undefined) {
+        persistedExpenseId = await db.pendingExpenses.add(localExpense);
+      } else {
+        persistedExpenseId = localExpense.id;
+        await db.pendingExpenses.update(persistedExpenseId, {
+          shift_id: localExpense.shift_id,
+          amount: localExpense.amount,
+          category: localExpense.category,
+          description: localExpense.description,
+          sync_status: localExpense.sync_status,
+          created_at: localExpense.created_at,
+        });
       }
+      setSavedExpenseId(persistedExpenseId ?? null);
 
       const shiftResult = await syncShiftsToCloud([{
         shift_id: activeShift!.shift_id,
@@ -124,22 +128,14 @@ export default function ExpenseForm() {
       const result = await syncExpensesToCloud([localExpense]);
       if (!result.success) throw new Error(result.error || "Expense upload failed.");
 
+      await db.pendingExpenses.update(persistedExpenseId, { sync_status: "synced" });
       setSavedExpenseId(null);
       setAmountStr("");
       setDescription("");
-      setSuccessMsg("Expense uploaded. It has been removed from this device.");
+      setSuccessMsg("Expense uploaded successfully. It will remain visible until duty ends.");
     } catch (err: unknown) {
       console.error("Error uploading expense:", err);
-      if (localExpense) {
-        const restoredId = await db.pendingExpenses.put(localExpense);
-        setSavedExpenseId(
-          typeof localExpense.id === "number"
-            ? localExpense.id
-            : typeof restoredId === "number"
-            ? restoredId
-            : null
-        );
-      }
+      setSavedExpenseId(persistedExpenseId ?? null);
       setErrorMsg(err instanceof Error ? err.message : "Failed to upload expense.");
     } finally {
       setIsSubmitting(false);

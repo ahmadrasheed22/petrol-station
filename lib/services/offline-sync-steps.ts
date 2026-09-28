@@ -114,7 +114,7 @@ export async function syncPendingExpenses(): Promise<SyncStepResult> {
     .map((expense) => expense.id)
     .filter((id): id is number => id !== undefined);
   if (expenseIds.length > 0) {
-    await db.pendingExpenses.where("id").anyOf(expenseIds).delete();
+    await db.pendingExpenses.where("id").anyOf(expenseIds).modify({ sync_status: "synced" });
   }
   return { syncedCount: result.insertedCount ?? pendingExpenses.length };
 }
