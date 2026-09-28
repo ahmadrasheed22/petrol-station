@@ -11,9 +11,19 @@ export default async function AdminExpensesPage() {
   const supabase = await createClient();
   const { data: expenses, error } = await supabase
     .from("expenses")
-    .select("id, shift_id, amount, description, created_at")
+    .select(
+      "id, shift_id, amount, description, created_at, shift:shifts!shift_id(worker:profiles!shifts_worker_id_fkey(name))"
+    )
     .order("created_at", { ascending: false })
     .limit(100);
+
+  const getWorkerName = (expense: {
+    shift?: Array<{ worker?: Array<{ name?: string | null }> | { name?: string | null } | null }> | { worker?: Array<{ name?: string | null }> | { name?: string | null } | null } | null;
+  }) => {
+    const shift = Array.isArray(expense.shift) ? expense.shift[0] : expense.shift;
+    const worker = Array.isArray(shift?.worker) ? shift.worker[0] : shift?.worker;
+    return worker?.name || "Unknown Worker";
+  };
 
   const totalAmount = (expenses || []).reduce(
     (total, expense) => total + Number(expense.amount || 0),
@@ -55,7 +65,7 @@ export default async function AdminExpensesPage() {
               <thead className="bg-zinc-950/60 text-[11px] uppercase tracking-wider text-zinc-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Description</th>
-                  <th className="px-4 py-3 font-semibold">Duty reference</th>
+                  <th className="px-4 py-3 font-semibold">Worker</th>
                   <th className="px-4 py-3 font-semibold">Uploaded</th>
                   <th className="px-4 py-3 text-right font-semibold">Amount</th>
                 </tr>
@@ -66,8 +76,15 @@ export default async function AdminExpensesPage() {
                     <td className="px-4 py-3.5 font-medium text-zinc-100">
                       {expense.description || "Station expense"}
                     </td>
-                    <td className="px-4 py-3.5 font-mono text-xs text-zinc-500">
-                      {expense.shift_id ? expense.shift_id.slice(0, 8) : "Unassigned"}
+                    <td className="px-4 py-3.5">
+                      <span className="font-medium text-zinc-200">
+                        {getWorkerName(expense)}
+                      </span>
+                      {expense.shift_id && (
+                        <span className="mt-1 block font-mono text-xs text-zinc-500">
+                          Duty {expense.shift_id.slice(0, 8)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3.5 text-zinc-400">
                       {new Date(expense.created_at).toLocaleString("en-PK", {
