@@ -29,21 +29,39 @@ export default async function AdminShiftLogsPage({
 }: {
   searchParams?: Promise<{ date?: string }>;
 }) {
-  const today = new Intl.DateTimeFormat("en-CA", {
+  const dateFormatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Karachi",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  });
+  const today = dateFormatter.format(new Date());
   const requestedDate = (await searchParams)?.date;
-  const parsedDate = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+  const parsedDate = typeof requestedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
     ? new Date(`${requestedDate}T00:00:00.000Z`)
     : null;
-  const selectedDate = parsedDate?.toISOString().slice(0, 10) === requestedDate
-    ? requestedDate!
-    : today;
-  const dayStart = new Date(`${selectedDate}T00:00:00+05:00`);
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  const requestedDateIsValid = Boolean(
+    parsedDate &&
+    Number.isFinite(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === requestedDate
+  );
+  let selectedDate = requestedDateIsValid ? requestedDate as string : today;
+  let dayStart = new Date(`${selectedDate}T00:00:00+05:00`);
+  let dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  if (!Number.isFinite(dayStart.getTime()) || !Number.isFinite(dayEnd.getTime())) {
+    selectedDate = today;
+    dayStart = new Date(`${selectedDate}T00:00:00+05:00`);
+    dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  }
+  if (!Number.isFinite(dayStart.getTime()) || !Number.isFinite(dayEnd.getTime())) {
+    const now = new Date();
+    selectedDate = dateFormatter.format(now);
+    dayStart = new Date(`${selectedDate}T00:00:00+05:00`);
+    dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  }
+  if (!Number.isFinite(dayStart.getTime()) || !Number.isFinite(dayEnd.getTime())) {
+    throw new Error("Unable to determine a valid date range for shift logs.");
+  }
   const supabase = await createClient();
   const [{ data: shifts, error }, workers] = await Promise.all([
     supabase
