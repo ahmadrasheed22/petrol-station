@@ -41,7 +41,16 @@ export default async function AdminKhataPage() {
             <tbody className="divide-y divide-zinc-800/70">
               {overview.customers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-zinc-800/30">
-                  <td className="px-4 py-4 font-semibold text-white">{customer.name}</td>
+                  <td className="px-4 py-4 font-semibold text-white">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span>{customer.name}</span>
+                      {customer.has_pending_approval && (
+                        <span className="rounded-full border border-yellow-400/40 bg-yellow-400/15 px-2 py-0.5 text-[10px] font-bold text-yellow-200">
+                          Approval Pending
+                        </span>
+                      )}
+                    </span>
+                  </td>
                   <td className="px-4 py-4 font-mono text-zinc-400">{customer.phone_number || "Not provided"}</td>
                   <td className="px-4 py-4 text-zinc-400">{formatDate(customer.latest_transaction_at)}</td>
                   <td className={`px-4 py-4 text-right font-bold ${customer.total_balance > 0 ? "text-amber-300" : "text-emerald-400"}`}>Rs. {customer.total_balance.toLocaleString()}</td>

@@ -143,7 +143,7 @@ export default async function KhataPage() {
 
         {/* Khata Operational Grid: Form & Customer Ledger */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <div className="lg:sticky lg:top-6">
+          <div className="self-start h-fit lg:sticky lg:top-6">
             <CreditSaleForm />
           </div>
           <div className="lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-2">

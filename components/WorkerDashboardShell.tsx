@@ -236,10 +236,12 @@ export default function WorkerDashboardShell({
             )}
 
             {visibleView === "khata" && (
-              <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
-                <CreditSaleForm
-                  onSaleRecorded={() => setDirectoryRefreshKey((key) => key + 1)}
-                />
+              <div className="grid items-start gap-6 xl:grid-cols-[1.05fr_1.35fr]">
+                <div className="self-start h-fit">
+                  <CreditSaleForm
+                    onSaleRecorded={() => setDirectoryRefreshKey((key) => key + 1)}
+                  />
+                </div>
                 <WorkerCustomerLedger refreshKey={directoryRefreshKey} />
               </div>
             )}

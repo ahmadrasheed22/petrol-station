@@ -26,6 +26,7 @@ export interface CustomerLedgerResult {
     phone_number: string;
     total_balance: number;
     latest_transaction_at: string;
+    has_pending_approval: boolean;
   };
   entries?: CustomerLedgerEntry[];
   total_liters?: number;
@@ -37,9 +38,20 @@ export interface CustomerDirectoryEntry {
   phone_number: string;
   total_balance: number;
   latest_transaction_at: string;
+  has_pending_approval: boolean;
 }
 
-type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at">;
+type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval">;
+
+function calculateOutstandingBalance(
+  entries: Array<{ amount: unknown; transaction_type: unknown; status: unknown }>
+): number {
+  return entries.reduce((total, entry) => {
+    if (entry.status === "SETTLED") return total;
+    const amount = Number(entry.amount) || 0;
+    return total + (entry.transaction_type === "credit" ? amount : -amount);
+  }, 0);
+}
 
 function getJoinedProfileName(value: unknown): string | null {
   if (!value) return null;
@@ -88,8 +100,9 @@ async function buildCustomerLedger(
     success: true,
     customer: {
       ...customer,
-      total_balance: Number(customer.total_balance) || 0,
+      total_balance: calculateOutstandingBalance(ledgerRows || []),
       latest_transaction_at: entries[0]?.created_at || "",
+      has_pending_approval: entries.some((entry) => entry.status === "PENDING_APPROVAL"),
     },
     entries,
     total_liters: entries.reduce(
@@ -110,7 +123,7 @@ export async function getCustomerDirectory(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("customers")
-    .select("id, name, phone_number, total_balance, ledger_transactions(created_at)")
+    .select("id, name, phone_number, ledger_transactions(amount, transaction_type, status, created_at)")
     .order("created_at", { referencedTable: "ledger_transactions", ascending: false });
 
   if (error) return { success: false, error: error.message };
@@ -118,13 +131,20 @@ export async function getCustomerDirectory(): Promise<{
   return {
     success: true,
     customers: (data || [])
-      .map((customer) => ({
+      .map((customer) => {
+        const ledgerEntries = customer.ledger_transactions || [];
+        const totalBalance = calculateOutstandingBalance(ledgerEntries);
+        const hasPendingApproval = ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL");
+        return {
         id: customer.id,
         name: customer.name,
         phone_number: customer.phone_number || "",
-        total_balance: Number(customer.total_balance) || 0,
-        latest_transaction_at: customer.ledger_transactions[0]?.created_at || "",
-      }))
+        total_balance: totalBalance,
+        has_pending_approval: hasPendingApproval,
+        latest_transaction_at: ledgerEntries[0]?.created_at || "",
+        };
+      })
+      .filter((customer) => customer.total_balance > 0 || customer.has_pending_approval)
       .sort((first, second) =>
         second.latest_transaction_at.localeCompare(first.latest_transaction_at)
       ),
@@ -293,7 +313,7 @@ export async function getAdminKhataOverview(): Promise<{
     await Promise.all([
       supabase
         .from("customers")
-        .select("id, name, phone_number, total_balance, ledger_transactions(created_at)")
+        .select("id, name, phone_number, ledger_transactions(amount, transaction_type, status, created_at)")
         .order("created_at", { referencedTable: "ledger_transactions", ascending: false }),
       supabase
         .from("ledger_transactions")
@@ -311,13 +331,18 @@ export async function getAdminKhataOverview(): Promise<{
   if (pendingError) return { success: false, error: pendingError.message };
 
   const directory = (customers || [])
-    .map((customer) => ({
+    .map((customer) => {
+      const ledgerEntries = customer.ledger_transactions || [];
+      return {
       id: customer.id,
       name: customer.name,
       phone_number: customer.phone_number || "",
-      total_balance: Number(customer.total_balance) || 0,
-      latest_transaction_at: customer.ledger_transactions[0]?.created_at || "",
-    }))
+      total_balance: calculateOutstandingBalance(ledgerEntries),
+      has_pending_approval: ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL"),
+      latest_transaction_at: ledgerEntries[0]?.created_at || "",
+      };
+    })
+    .filter((customer) => customer.total_balance > 0)
     .sort((first, second) => second.latest_transaction_at.localeCompare(first.latest_transaction_at));
 
   return {

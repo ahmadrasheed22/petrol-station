@@ -223,6 +223,7 @@ export default function WorkerCustomerLedger({
         merged.set(cloudKey, {
           ...existing,
           total_balance: existing.total_balance + pendingDelta,
+          has_pending_approval: existing.has_pending_approval || group.transactions.some((transaction) => transaction.status === "PENDING_APPROVAL"),
           latest_transaction_at:
             latestLocalTransaction > existing.latest_transaction_at
               ? latestLocalTransaction
@@ -243,6 +244,7 @@ export default function WorkerCustomerLedger({
         name: group.name,
         phone_number: group.phoneNumber,
         total_balance: totalBalance,
+        has_pending_approval: group.transactions.some((transaction) => transaction.status === "PENDING_APPROVAL"),
         latest_transaction_at: latestLocalTransaction,
       });
     }
@@ -277,6 +279,7 @@ export default function WorkerCustomerLedger({
   }
 
   const filteredCustomers = directoryCustomers.filter((item) => {
+    if (item.total_balance <= 0 && !item.has_pending_approval) return false;
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.name.toLocaleLowerCase().includes(query) ||
       item.phone_number.toLocaleLowerCase().includes(query);
@@ -468,7 +471,14 @@ export default function WorkerCustomerLedger({
                 onClick={() => void openCustomerById(item.id)}
                 className="grid w-full grid-cols-1 gap-2 px-4 py-4 text-left transition-colors hover:bg-zinc-800/50 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
               >
-                <span className="truncate font-semibold text-white">{item.name}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2 font-semibold text-white">
+                  <span className="truncate">{item.name}</span>
+                  {item.has_pending_approval && (
+                    <span className="shrink-0 rounded-full border border-yellow-400/40 bg-yellow-400/15 px-2 py-0.5 text-[10px] font-bold text-yellow-200">
+                      Approval Pending
+                    </span>
+                  )}
+                </span>
                 <span className="font-mono text-xs text-zinc-400">{item.phone_number || "No phone number"}</span>
                 <span className="text-xs text-zinc-400">{item.latest_transaction_at ? new Date(item.latest_transaction_at).toLocaleString() : "Unknown date"}</span>
                 <span className="text-sm font-semibold text-amber-300 sm:text-right">
