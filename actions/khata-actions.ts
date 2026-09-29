@@ -296,6 +296,7 @@ export interface PendingApprovalEntry {
 
 export interface WorkerPendingCollection {
   id: string;
+  client_id: string;
   customer_id: string;
   customer_name: string;
   amount: number;
@@ -399,6 +400,7 @@ export async function getWorkerPendingCollections(): Promise<{
     success: true,
     entries: (data || []).map((row) => ({
       id: row.id,
+      client_id: row.id,
       customer_id: row.customer_id,
       customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
       amount: Number(row.amount) || 0,

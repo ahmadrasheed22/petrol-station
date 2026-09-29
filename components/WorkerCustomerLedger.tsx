@@ -31,7 +31,7 @@ export default function WorkerCustomerLedger({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [customers, setCustomers] = useState<CustomerDirectoryEntry[]>([]);
-  const [pendingCollections, setPendingCollections] = useState<WorkerPendingCollection[]>([]);
+  const [cloudPendingCollections, setCloudPendingCollections] = useState<WorkerPendingCollection[]>([]);
   const [directoryTab, setDirectoryTab] = useState<"all" | "pending">("all");
   const [customer, setCustomer] = useState<CustomerDirectoryEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +71,7 @@ export default function WorkerCustomerLedger({
       }
 
       if (pendingResult.success) {
-        setPendingCollections(pendingResult.entries || []);
+        setCloudPendingCollections(pendingResult.entries || []);
       }
     } catch (error) {
       console.warn("Worker directory refresh skipped after a network failure:", error);
@@ -211,6 +211,41 @@ export default function WorkerCustomerLedger({
       .map(toLocalLedgerEntry)
       .sort((first, second) => second.created_at.localeCompare(first.created_at));
   }, [customer, offlineDirectory]);
+
+  const pendingCollections = useMemo<WorkerPendingCollection[]>(() => {
+    const merged = new Map<string, WorkerPendingCollection>();
+    const aliases = new Map<string, string>();
+
+    for (const cloudEntry of cloudPendingCollections) {
+      const key = cloudEntry.client_id;
+      merged.set(key, cloudEntry);
+      aliases.set(cloudEntry.id, key);
+      aliases.set(cloudEntry.client_id, key);
+    }
+
+    for (const transaction of offlineDirectory?.ledgerTransactions || []) {
+      if (transaction.status !== "PENDING_APPROVAL") continue;
+
+      const localKey = transaction.client_id;
+      const matchingKey = aliases.get(transaction.cloud_id || "") || aliases.get(localKey) || localKey;
+      const localEntry: WorkerPendingCollection = {
+        id: transaction.cloud_id || `offline:${transaction.id}`,
+        client_id: localKey,
+        customer_id: transaction.customer_id || `offline:${localKey}`,
+        customer_name: transaction.customer_name,
+        amount: transaction.amount,
+        created_at: transaction.created_at,
+      };
+      merged.delete(matchingKey);
+      merged.set(localKey, localEntry);
+      aliases.set(localEntry.id, localKey);
+      aliases.set(localKey, localKey);
+    }
+
+    return Array.from(merged.values()).sort((first, second) =>
+      second.created_at.localeCompare(first.created_at)
+    );
+  }, [cloudPendingCollections, offlineDirectory]);
 
   const totalLiters = detailEntries.reduce(
     (total, entry) => total + (entry.transaction_type === "credit" ? entry.liters : 0),
@@ -375,7 +410,7 @@ export default function WorkerCustomerLedger({
                   </ul>
                 )}
               </div>
-              <p className="text-right text-[11px] text-zinc-500">Latest cloud records first</p>
+              <p className="text-right text-[11px] text-zinc-500">Latest records first</p>
           </>
         </div>
       )}
