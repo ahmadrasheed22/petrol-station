@@ -57,6 +57,7 @@ export async function reconcileOfflineCustomersWithCloud(
     client_id: string | null;
     customer_id: string;
     status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+    received_at: string | null;
     issued_by_worker_name?: string | null;
     received_by_worker_name?: string | null;
   }> = []
@@ -129,6 +130,10 @@ export async function reconcileOfflineCustomersWithCloud(
       );
       if (!cloudEntry) continue;
       await db.pendingLedgerTransactions.update(transaction.id, {
+        cloud_id: cloudEntry.id,
+        status: cloudEntry.status,
+        sync_status: "synced",
+        received_at: cloudEntry.received_at || undefined,
         issued_by_worker_name: cloudEntry.issued_by_worker_name || undefined,
         received_by_worker_name: cloudEntry.received_by_worker_name || undefined,
       });

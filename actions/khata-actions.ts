@@ -48,6 +48,7 @@ export interface CloudLedgerSyncEntry {
   client_id: string | null;
   customer_id: string;
   status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+  received_at: string | null;
   issued_by_worker_name: string | null;
   received_by_worker_name: string | null;
 }
@@ -78,12 +79,14 @@ function getJoinedProfileName(value: unknown): string | null {
 
 async function buildCustomerLedger(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  customer: CustomerSummary
+  customer: CustomerSummary,
+  currentProfile: { id: string; name: string }
 ): Promise<CustomerLedgerResult> {
   const { data: ledgerRows, error: ledgerError } = await supabase
     .from("ledger_transactions")
     .select(`
       id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at, received_at,
+      issued_by_worker, received_by_worker,
       issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
       receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
     `)
@@ -105,8 +108,12 @@ async function buildCustomerLedger(
     status: row.status as CustomerLedgerEntry["status"],
     created_at: row.created_at,
     received_at: row.received_at,
-    issued_by_worker_name: getJoinedProfileName(row.issuer) || "Unknown Worker",
-    received_by_worker_name: getJoinedProfileName(row.receiver),
+    issued_by_worker_name:
+      getJoinedProfileName(row.issuer) ||
+      (row.issued_by_worker === currentProfile.id ? currentProfile.name : "Unknown Worker"),
+    received_by_worker_name:
+      getJoinedProfileName(row.receiver) ||
+      (row.received_by_worker === currentProfile.id ? currentProfile.name : null),
   }));
 
   return {
@@ -141,7 +148,8 @@ export async function getCustomerDirectory(): Promise<{
     .select(`
       id, name, phone_number,
       ledger_transactions(
-        id, client_id, customer_id, amount, transaction_type, status, created_at,
+        id, client_id, customer_id, amount, transaction_type, status, created_at, received_at,
+        issued_by_worker, received_by_worker,
         issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
         receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
       )
@@ -162,8 +170,13 @@ export async function getCustomerDirectory(): Promise<{
         client_id: entry.client_id || null,
         customer_id: entry.customer_id || customer.id,
         status: entry.status as CloudLedgerSyncEntry["status"],
-        issued_by_worker_name: getJoinedProfileName(entry.issuer),
-        received_by_worker_name: getJoinedProfileName(entry.receiver),
+        received_at: entry.received_at || null,
+        issued_by_worker_name:
+          getJoinedProfileName(entry.issuer) ||
+          (entry.issued_by_worker === auth.profile.id ? auth.profile.name : null),
+        received_by_worker_name:
+          getJoinedProfileName(entry.receiver) ||
+          (entry.received_by_worker === auth.profile.id ? auth.profile.name : null),
       }))
     ),
     customers: (data || [])
@@ -209,7 +222,7 @@ export async function getCustomerLedgerById(customerId: string): Promise<Custome
     name: customer.name,
     phone_number: customer.phone_number || "",
     total_balance: Number(customer.total_balance) || 0,
-  });
+  }, auth.profile);
 }
 
 export async function getCustomerLedgerByName(
@@ -244,7 +257,7 @@ export async function getCustomerLedgerByName(
     name: customer.name,
     phone_number: customer.phone_number || "",
     total_balance: Number(customer.total_balance) || 0,
-  });
+  }, auth.profile);
 }
 
 export async function getCustomerLedgerByPhone(
@@ -279,7 +292,7 @@ export async function getCustomerLedgerByPhone(
     name: customer.name,
     phone_number: customer.phone_number || "",
     total_balance: Number(customer.total_balance) || 0,
-  });
+  }, auth.profile);
 }
 
 export async function markLedgerPaymentReceived(

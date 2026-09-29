@@ -92,6 +92,13 @@ export default function WorkerCustomerLedger({
     void refreshDirectory();
   }, [refreshDirectory, refreshKey]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshDirectory();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [refreshDirectory]);
+
   useRealtimeSync({
     tables: ["ledger_transactions"],
     onPayload: () => {
