@@ -2,6 +2,8 @@ import { getAdminKhataOverview } from "@/actions/khata-actions";
 import KhataApprovalQueue from "@/components/admin/KhataApprovalQueue";
 import { formatSouthAsianAmountInWords } from "@/lib/utils/number-to-words";
 
+export const dynamic = "force-dynamic";
+
 function formatDate(value: string): string {
   return value ? new Date(value).toLocaleDateString() : "No activity";
 }

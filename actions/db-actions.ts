@@ -54,7 +54,9 @@ export interface LedgerPayload {
   phone_number?: string;
   worker_id?: string;
   issued_by_worker?: string;
+  issued_by_worker_name?: string;
   received_by_worker?: string;
+  received_by_worker_name?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number;

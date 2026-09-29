@@ -224,8 +224,8 @@ export default function WorkerCustomerLedger({
       status: transaction.status,
       created_at: transaction.created_at,
       received_at: transaction.received_at || null,
-      issued_by_worker_name: "Current Worker",
-      received_by_worker_name: transaction.received_by_worker ? "Current Worker" : null,
+      issued_by_worker_name: transaction.issued_by_worker_name || "Unknown Worker",
+      received_by_worker_name: transaction.received_by_worker_name || null,
     };
   }
 
@@ -293,25 +293,28 @@ export default function WorkerCustomerLedger({
     try {
       const isOfflineEntry = entryId.startsWith("offline:");
       let updated = false;
+      let receivedWorkerName: string | undefined;
+      let receivedAt: string | undefined;
       if (isOfflineEntry) {
         const localId = Number(entryId.replace(/^offline:/, ""));
         updated = Number.isInteger(localId) && await markReceivedLocally(localId);
       } else {
         const result = await markLedgerPaymentReceived(entryId);
         if (!result.success) setError(result.error || "Unable to submit this payment for approval.");
+        receivedWorkerName = result.workerName;
+        receivedAt = result.receivedAt;
         updated = result.success;
       }
 
       if (!updated) return;
       if (!isOfflineEntry) {
-        const receivedAt = new Date().toISOString();
         setCloudLedgerEntries((entries) => entries.map((entry) =>
           entry.id === entryId
             ? {
                 ...entry,
                 status: "PENDING_APPROVAL",
-                received_at: receivedAt,
-                received_by_worker_name: "Current Worker",
+                received_at: receivedAt || new Date().toISOString(),
+                received_by_worker_name: receivedWorkerName || entry.received_by_worker_name,
               }
             : entry
         ));

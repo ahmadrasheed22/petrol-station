@@ -72,7 +72,9 @@ export interface PendingLedgerTransaction {
   phone_number: string;
   worker_id?: string;
   issued_by_worker?: string;
+  issued_by_worker_name?: string;
   received_by_worker?: string;
+  received_by_worker_name?: string;
   received_at?: string;
   updated_at?: string;
   liters?: number;

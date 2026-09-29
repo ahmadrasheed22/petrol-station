@@ -57,6 +57,8 @@ export async function reconcileOfflineCustomersWithCloud(
     client_id: string | null;
     customer_id: string;
     status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+    issued_by_worker_name?: string | null;
+    received_by_worker_name?: string | null;
   }> = []
 ): Promise<void> {
   const cloudCustomerBalances = new Map(cloudCustomers.map((customer) => [customer.id, customer.total_balance]));
@@ -64,6 +66,14 @@ export async function reconcileOfflineCustomersWithCloud(
   const settledCloudClientIds = new Set(
     cloudLedgerEntries
       .filter((entry) => entry.status === "SETTLED" && entry.client_id)
+      .map((entry) => entry.client_id)
+  );
+  const unpaidCloudIds = new Set(
+    cloudLedgerEntries.filter((entry) => entry.status === "UNPAID").map((entry) => entry.id)
+  );
+  const unpaidCloudClientIds = new Set(
+    cloudLedgerEntries
+      .filter((entry) => entry.status === "UNPAID" && entry.client_id)
       .map((entry) => entry.client_id)
   );
   const localTransactions = await db.pendingLedgerTransactions.toArray();
@@ -74,6 +84,12 @@ export async function reconcileOfflineCustomersWithCloud(
     )
   );
   const transactionIdsToDelete = settledTransactions.map((transaction) => transaction.id as number);
+  const rejectedTransactions = localTransactions.filter((transaction) =>
+    transaction.id !== undefined &&
+    ((transaction.cloud_id ? unpaidCloudIds.has(transaction.cloud_id) : false) ||
+      unpaidCloudClientIds.has(transaction.client_id)) &&
+    transaction.status === "PENDING_APPROVAL"
+  );
   const localCustomers = await db.customers.toArray();
   const customerIdsToDelete = localCustomers
     .filter((customer) => customer.sync_status === "synced" && (cloudCustomerBalances.get(customer.id) ?? 0) <= 0)
@@ -96,6 +112,27 @@ export async function reconcileOfflineCustomersWithCloud(
         await db.outbox.where("entryId").equals(transaction.id as number).delete();
       }
     }
+    for (const transaction of rejectedTransactions) {
+      await db.pendingLedgerTransactions.update(transaction.id as number, {
+        status: "UNPAID",
+        received_at: undefined,
+        updated_at: new Date().toISOString(),
+        sync_status: "synced",
+      });
+      await db.outbox.where("entryId").equals(transaction.id as number).delete();
+    }
+    for (const transaction of localTransactions) {
+      if (transaction.id === undefined) continue;
+      const cloudEntry = cloudLedgerEntries.find((entry) =>
+        (transaction.cloud_id && entry.id === transaction.cloud_id) ||
+        entry.client_id === transaction.client_id
+      );
+      if (!cloudEntry) continue;
+      await db.pendingLedgerTransactions.update(transaction.id, {
+        issued_by_worker_name: cloudEntry.issued_by_worker_name || undefined,
+        received_by_worker_name: cloudEntry.received_by_worker_name || undefined,
+      });
+    }
     if (customerIdsToDelete.length > 0) {
       await db.customers.bulkDelete(customerIdsToDelete);
     }
@@ -108,7 +145,9 @@ export async function addPendingLedgerTx(txData: {
   phone_number?: string | null;
   worker_id?: string;
   issued_by_worker?: string;
+  issued_by_worker_name?: string;
   received_by_worker?: string;
+  received_by_worker_name?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number;
@@ -161,8 +200,10 @@ export async function addPendingLedgerTx(txData: {
     worker_id: txData.worker_id,
     issued_by_worker:
       txData.issued_by_worker ?? txData.worker_id ?? (txType === "credit" ? txData.worker_id : undefined),
+    issued_by_worker_name: txData.issued_by_worker_name,
     received_by_worker:
       txData.received_by_worker ?? txData.worker_id ?? (txType === "payment" ? txData.worker_id : undefined),
+    received_by_worker_name: txData.received_by_worker_name,
     liters: txData.liters,
     amount: txData.amount,
     price_per_liter: price,
