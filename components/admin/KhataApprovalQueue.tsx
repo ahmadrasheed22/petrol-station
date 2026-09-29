@@ -7,6 +7,7 @@ import {
   updateLedgerApproval,
   type PendingApprovalEntry,
 } from "@/actions/khata-actions";
+import { useRealtimeSync } from "@/lib/hooks/useRealtimeSync";
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString(undefined, {
@@ -22,6 +23,8 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useRealtimeSync({ tables: ["ledger_transactions"] });
 
   useEffect(() => {
     setVisibleEntries(entries);

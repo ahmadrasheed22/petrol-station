@@ -210,43 +210,50 @@ export async function syncLedgerToCloudService(
       }
     }
 
-    const entriesToSync = formattedEntries.filter((entry) => !entry.id || !settledLedgerIds.has(entry.id));
-    if (entriesToSync.length === 0) {
+    const entriesToInsert = formattedEntries.filter((entry) => !entry.id || !existingLedgerIds.has(entry.id));
+    const entriesToApprove = formattedEntries.filter((entry) =>
+      entry.id &&
+      existingLedgerIds.has(entry.id) &&
+      !settledLedgerIds.has(entry.id) &&
+      entry.status === "PENDING_APPROVAL"
+    );
+    if (entriesToInsert.length === 0 && entriesToApprove.length === 0) {
       return { success: true, insertedCount: 0 };
     }
 
-    console.error("Ledger sync upsert starting:", {
-      entryCount: entriesToSync.length,
-      entries: entriesToSync.map((entry) => ({
+    console.error("Ledger sync starting:", {
+      insertCount: entriesToInsert.length,
+      approvalCount: entriesToApprove.length,
+      entries: [...entriesToInsert, ...entriesToApprove].map((entry) => ({
         id: entry.id,
         status: entry.status,
         updated_at: entry.updated_at,
       })),
     });
 
-    const { data, error } = await supabase
-      .from("ledger_transactions")
-      .upsert(entriesToSync, {
-        onConflict: "id",
-      })
-      .select("id");
+    const insertedRows = entriesToInsert.length > 0
+      ? await supabase
+        .from("ledger_transactions")
+        .insert(entriesToInsert)
+        .select("id")
+      : { data: [], error: null };
 
-    if (error) {
+    if (insertedRows.error) {
       const isMissingTable =
-        error.message?.includes("Could not find the table") ||
-        error.message?.includes("schema cache") ||
-        error.code === "PGRST205" ||
-        error.code === "42P01";
+        insertedRows.error.message?.includes("Could not find the table") ||
+        insertedRows.error.message?.includes("schema cache") ||
+        insertedRows.error.code === "PGRST205" ||
+        insertedRows.error.code === "42P01";
 
       const fullErrorMessage = isMissingTable
         ? "Supabase table 'public.ledger_transactions' is missing. Please run migrations in your Supabase Dashboard SQL Editor."
-        : [error.message, error.details, error.hint].filter(Boolean).join(" | ");
+        : [insertedRows.error.message, insertedRows.error.details, insertedRows.error.hint].filter(Boolean).join(" | ");
 
       console.error("Supabase ledger_transactions upsert rejected:", {
         error: fullErrorMessage,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+        code: insertedRows.error.code,
+        details: insertedRows.error.details,
+        hint: insertedRows.error.hint,
         entries: formattedEntries.map((entry) => ({
           id: entry.id,
           status: entry.status,
@@ -257,7 +264,23 @@ export async function syncLedgerToCloudService(
       return { success: false, error: fullErrorMessage };
     }
 
-    const insertedIds = new Set((data || []).map((entry) => entry.id));
+    for (const entry of entriesToApprove) {
+      const { error } = await supabase
+        .from("ledger_transactions")
+        .update({
+          status: "PENDING_APPROVAL",
+          received_by_worker: entry.received_by_worker,
+          received_at: entry.received_at,
+          updated_at: entry.updated_at,
+        })
+        .eq("id", entry.id)
+        .eq("status", "UNPAID");
+      if (error) {
+        return { success: false, error: `Ledger approval sync failed: ${error.message}` };
+      }
+    }
+
+    const insertedIds = new Set((insertedRows.data || []).map((entry) => entry.id));
     const customerDeltas = new Map<string, number>();
     for (const entry of ledgerEntries) {
       if (!entry.id || !insertedIds.has(entry.id) || existingLedgerIds.has(entry.id)) continue;
@@ -293,7 +316,7 @@ export async function syncLedgerToCloudService(
 
     return {
       success: true,
-      insertedCount: data ? data.length : ledgerEntries.length,
+      insertedCount: insertedRows.data?.length || entriesToApprove.length,
     };
   } catch (err: unknown) {
     const errorMessage =

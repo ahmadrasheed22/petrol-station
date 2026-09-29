@@ -48,6 +48,8 @@ export interface CloudLedgerSyncEntry {
   client_id: string | null;
   customer_id: string;
   status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+  issued_by_worker_name: string | null;
+  received_by_worker_name: string | null;
 }
 
 type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval">;
@@ -136,7 +138,14 @@ export async function getCustomerDirectory(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("customers")
-    .select("id, name, phone_number, ledger_transactions(id, client_id, customer_id, amount, transaction_type, status, created_at)")
+    .select(`
+      id, name, phone_number,
+      ledger_transactions(
+        id, client_id, customer_id, amount, transaction_type, status, created_at,
+        issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
+        receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
+      )
+    `)
     .order("created_at", { referencedTable: "ledger_transactions", ascending: false });
 
   if (error) return { success: false, error: error.message };
@@ -153,6 +162,8 @@ export async function getCustomerDirectory(): Promise<{
         client_id: entry.client_id || null,
         customer_id: entry.customer_id || customer.id,
         status: entry.status as CloudLedgerSyncEntry["status"],
+        issued_by_worker_name: getJoinedProfileName(entry.issuer),
+        received_by_worker_name: getJoinedProfileName(entry.receiver),
       }))
     ),
     customers: (data || [])
@@ -453,7 +464,10 @@ export async function updateLedgerApproval(
   const writableClient = adminClient ?? supabase;
   const { data, error } = await writableClient
     .from("ledger_transactions")
-    .update({ status })
+    .update({
+      status,
+      ...(status === "UNPAID" ? { received_by_worker: null, received_at: null } : {}),
+    })
     .eq("id", transactionId)
     .eq("status", "PENDING_APPROVAL")
     .select("id")
