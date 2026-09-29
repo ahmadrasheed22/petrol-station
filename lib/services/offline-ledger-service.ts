@@ -51,21 +51,55 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
 }
 
 export async function reconcileOfflineCustomersWithCloud(
-  cloudCustomers: Array<{ id: string; total_balance: number }>
+  cloudCustomers: Array<{ id: string; total_balance: number }>,
+  cloudLedgerEntries: Array<{
+    id: string;
+    client_id: string | null;
+    customer_id: string;
+    status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+  }> = []
 ): Promise<void> {
-  const cloudCustomerIds = new Set(
-    cloudCustomers
-      .filter((customer) => customer.total_balance > 0)
-      .map((customer) => customer.id)
+  const cloudCustomerBalances = new Map(cloudCustomers.map((customer) => [customer.id, customer.total_balance]));
+  const settledCloudIds = new Set(cloudLedgerEntries.filter((entry) => entry.status === "SETTLED").map((entry) => entry.id));
+  const settledCloudClientIds = new Set(
+    cloudLedgerEntries
+      .filter((entry) => entry.status === "SETTLED" && entry.client_id)
+      .map((entry) => entry.client_id)
   );
+  const localTransactions = await db.pendingLedgerTransactions.toArray();
+  const settledTransactions = localTransactions.filter((transaction) =>
+    transaction.id !== undefined && (
+      (transaction.cloud_id ? settledCloudIds.has(transaction.cloud_id) : false) ||
+      settledCloudClientIds.has(transaction.client_id)
+    )
+  );
+  const transactionIdsToDelete = settledTransactions.map((transaction) => transaction.id as number);
   const localCustomers = await db.customers.toArray();
   const customerIdsToDelete = localCustomers
-    .filter((customer) => !cloudCustomerIds.has(customer.id))
+    .filter((customer) => customer.sync_status === "synced" && (cloudCustomerBalances.get(customer.id) ?? 0) <= 0)
     .map((customer) => customer.id);
 
-  if (customerIdsToDelete.length > 0) {
-    await db.customers.bulkDelete(customerIdsToDelete);
-  }
+  await db.transaction("rw", db.pendingLedgerTransactions, db.customers, db.outbox, async () => {
+    if (transactionIdsToDelete.length > 0) {
+      await db.pendingLedgerTransactions.bulkDelete(transactionIdsToDelete);
+      for (const transaction of settledTransactions) {
+        if (transaction.customer_id) {
+          const customer = await db.customers.get(transaction.customer_id);
+          if (customer) {
+            const delta = transaction.transaction_type === "credit" ? -transaction.amount : transaction.amount;
+            await db.customers.update(transaction.customer_id, {
+              total_balance: (customer.total_balance || 0) + delta,
+              updated_at: new Date().toISOString(),
+            });
+          }
+        }
+        await db.outbox.where("entryId").equals(transaction.id as number).delete();
+      }
+    }
+    if (customerIdsToDelete.length > 0) {
+      await db.customers.bulkDelete(customerIdsToDelete);
+    }
+  });
 }
 
 export async function addPendingLedgerTx(txData: {
@@ -187,6 +221,7 @@ export async function markReceivedLocally(entryId: number): Promise<boolean> {
     await db.pendingLedgerTransactions.update(entryId, {
       status: "PENDING_APPROVAL",
       received_at: receivedAt,
+      updated_at: receivedAt,
       sync_status: "pending",
     });
 

@@ -186,15 +186,48 @@ export async function syncLedgerToCloudService(
         transaction_type: entry.transaction_type || "credit",
         status: entry.status || (entry.transaction_type === "payment" ? "PENDING_APPROVAL" : "UNPAID"),
         received_at: entry.received_at || null,
+        updated_at: entry.updated_at || new Date().toISOString(),
         created_at: entry.created_at || new Date().toISOString(),
       };
     });
 
+    const entryIds = formattedEntries
+      .map((entry) => entry.id)
+      .filter((id): id is string => Boolean(id));
+    const existingLedgerIds = new Set<string>();
+    const settledLedgerIds = new Set<string>();
+    if (entryIds.length > 0) {
+      const { data: existingLedgerEntries, error: existingLedgerError } = await supabase
+        .from("ledger_transactions")
+        .select("id, status")
+        .in("id", entryIds);
+      if (existingLedgerError) {
+        return { success: false, error: `Ledger lookup failed: ${existingLedgerError.message}` };
+      }
+      for (const entry of existingLedgerEntries || []) {
+        existingLedgerIds.add(entry.id);
+        if (entry.status === "SETTLED") settledLedgerIds.add(entry.id);
+      }
+    }
+
+    const entriesToSync = formattedEntries.filter((entry) => !entry.id || !settledLedgerIds.has(entry.id));
+    if (entriesToSync.length === 0) {
+      return { success: true, insertedCount: 0 };
+    }
+
+    console.error("Ledger sync upsert starting:", {
+      entryCount: entriesToSync.length,
+      entries: entriesToSync.map((entry) => ({
+        id: entry.id,
+        status: entry.status,
+        updated_at: entry.updated_at,
+      })),
+    });
+
     const { data, error } = await supabase
       .from("ledger_transactions")
-      .upsert(formattedEntries, {
+      .upsert(entriesToSync, {
         onConflict: "id",
-        ignoreDuplicates: true,
       })
       .select("id");
 
@@ -209,14 +242,25 @@ export async function syncLedgerToCloudService(
         ? "Supabase table 'public.ledger_transactions' is missing. Please run migrations in your Supabase Dashboard SQL Editor."
         : [error.message, error.details, error.hint].filter(Boolean).join(" | ");
 
-      console.error("Supabase insert ledger_transactions error:", fullErrorMessage);
+      console.error("Supabase ledger_transactions upsert rejected:", {
+        error: fullErrorMessage,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        entries: formattedEntries.map((entry) => ({
+          id: entry.id,
+          status: entry.status,
+          received_by_worker: entry.received_by_worker,
+          updated_at: entry.updated_at,
+        })),
+      });
       return { success: false, error: fullErrorMessage };
     }
 
     const insertedIds = new Set((data || []).map((entry) => entry.id));
     const customerDeltas = new Map<string, number>();
     for (const entry of ledgerEntries) {
-      if (!entry.id || !insertedIds.has(entry.id)) continue;
+      if (!entry.id || !insertedIds.has(entry.id) || existingLedgerIds.has(entry.id)) continue;
       const customerId = entryCustomerMap.get(entry);
       if (customerId) {
         const delta = (entry.transaction_type || "credit") === "credit" ? entry.amount : -entry.amount;

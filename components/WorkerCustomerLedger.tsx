@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
+  getCustomerLedgerById,
+  markLedgerPaymentReceived,
   getWorkerPendingCollections,
   type CustomerDirectoryEntry,
   type CustomerLedgerEntry,
@@ -34,9 +36,11 @@ export default function WorkerCustomerLedger({
   const [cloudPendingCollections, setCloudPendingCollections] = useState<WorkerPendingCollection[]>([]);
   const [directoryTab, setDirectoryTab] = useState<"all" | "pending">("all");
   const [customer, setCustomer] = useState<CustomerDirectoryEntry | null>(null);
+  const [cloudLedgerEntries, setCloudLedgerEntries] = useState<CustomerLedgerEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
+  const directoryRequestRef = useRef(0);
   const offlineDirectory = useLiveQuery(
     async () => {
       const [offlineCustomers, ledgerTransactions] = await Promise.all([
@@ -50,8 +54,9 @@ export default function WorkerCustomerLedger({
   );
 
   const refreshDirectory = useCallback(async () => {
+    const requestId = ++directoryRequestRef.current;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      setIsLoadingDirectory(false);
+      if (requestId === directoryRequestRef.current) setIsLoadingDirectory(false);
       return;
     }
 
@@ -60,13 +65,17 @@ export default function WorkerCustomerLedger({
         getCustomerDirectory(),
         getWorkerPendingCollections(),
       ]);
+      if (requestId !== directoryRequestRef.current) return;
 
       if (!directoryResult.success) {
         setError(directoryResult.error || "Unable to load the customer directory.");
       } else {
         setError(null);
         const cloudCustomers = directoryResult.customers || [];
-        await reconcileOfflineCustomersWithCloud(cloudCustomers);
+        await reconcileOfflineCustomersWithCloud(
+          directoryResult.sync_customers || cloudCustomers,
+          directoryResult.ledger_sync_entries || []
+        );
         setCustomers(cloudCustomers);
       }
 
@@ -76,7 +85,7 @@ export default function WorkerCustomerLedger({
     } catch (error) {
       console.warn("Worker directory refresh skipped after a network failure:", error);
     }
-    setIsLoadingDirectory(false);
+    if (requestId === directoryRequestRef.current) setIsLoadingDirectory(false);
   }, []);
 
   useEffect(() => {
@@ -85,7 +94,14 @@ export default function WorkerCustomerLedger({
 
   useRealtimeSync({
     tables: ["ledger_transactions"],
-    onPayload: () => void refreshDirectory(),
+    onPayload: () => {
+      void refreshDirectory();
+      if (customer) {
+        void getCustomerLedgerById(customer.id).then((result) => {
+          if (result.success) setCloudLedgerEntries(result.entries || []);
+        });
+      }
+    },
   });
 
   async function openCustomerById(customerId: string) {
@@ -93,6 +109,15 @@ export default function WorkerCustomerLedger({
 
     setError(null);
     setCustomer(targetCustomer);
+    setCloudLedgerEntries([]);
+    if (!targetCustomer) return;
+
+    const result = await getCustomerLedgerById(targetCustomer.id);
+    if (!result.success) {
+      setError(result.error || "Unable to load this customer ledger.");
+      return;
+    }
+    setCloudLedgerEntries(result.entries || []);
   }
 
   useEffect(() => {
@@ -206,11 +231,20 @@ export default function WorkerCustomerLedger({
 
   const detailEntries = useMemo(() => {
     if (!customer) return [];
-    return (offlineDirectory?.ledgerTransactions || [])
-      .filter((transaction) => transaction.customer_id === customer.id)
-      .map(toLocalLedgerEntry)
+    const cloudIds = new Set(cloudLedgerEntries.map((entry) => entry.id));
+    const localEntries = (offlineDirectory?.ledgerTransactions || [])
+      .filter((transaction) => {
+        const sameCustomer = transaction.customer_id === customer.id ||
+          (transaction.customer_name.trim().toLocaleLowerCase() === customer.name.trim().toLocaleLowerCase() &&
+            (!transaction.phone_number || !customer.phone_number || transaction.phone_number === customer.phone_number));
+        return sameCustomer && transaction.status !== "SETTLED" &&
+          (!transaction.cloud_id || !cloudIds.has(transaction.cloud_id));
+      })
+      .map(toLocalLedgerEntry);
+
+    return [...cloudLedgerEntries, ...localEntries]
       .sort((first, second) => second.created_at.localeCompare(first.created_at));
-  }, [customer, offlineDirectory]);
+  }, [cloudLedgerEntries, customer, offlineDirectory]);
 
   const pendingCollections = useMemo<WorkerPendingCollection[]>(() => {
     const merged = new Map<string, WorkerPendingCollection>();
@@ -257,9 +291,32 @@ export default function WorkerCustomerLedger({
     setError(null);
     setLoadingIds((current) => new Set(current).add(entryId));
     try {
-      const localId = Number(entryId.replace(/^offline:/, ""));
-      const updated = Number.isInteger(localId) && await markReceivedLocally(localId);
-      if (!updated) setError("This entry is no longer unpaid. Refresh the ledger.");
+      const isOfflineEntry = entryId.startsWith("offline:");
+      let updated = false;
+      if (isOfflineEntry) {
+        const localId = Number(entryId.replace(/^offline:/, ""));
+        updated = Number.isInteger(localId) && await markReceivedLocally(localId);
+      } else {
+        const result = await markLedgerPaymentReceived(entryId);
+        if (!result.success) setError(result.error || "Unable to submit this payment for approval.");
+        updated = result.success;
+      }
+
+      if (!updated) return;
+      if (!isOfflineEntry) {
+        const receivedAt = new Date().toISOString();
+        setCloudLedgerEntries((entries) => entries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                status: "PENDING_APPROVAL",
+                received_at: receivedAt,
+                received_by_worker_name: "Current Worker",
+              }
+            : entry
+        ));
+      }
+      void refreshDirectory();
     } finally {
       setLoadingIds((current) => {
         const next = new Set(current);
@@ -279,6 +336,8 @@ export default function WorkerCustomerLedger({
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.customer_name.toLocaleLowerCase().includes(query);
   });
+  const allCustomersTotal = directoryCustomers.reduce((total, item) => total + Math.max(Number(item.total_balance) || 0, 0), 0);
+  const pendingApprovalsTotal = pendingCollections.reduce((total, item) => total + (Number(item.amount) || 0), 0);
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl sm:p-6">
@@ -292,6 +351,7 @@ export default function WorkerCustomerLedger({
             type="button"
             onClick={() => {
               setCustomer(null);
+              setCloudLedgerEntries([]);
               setError(null);
               void refreshDirectory();
             }}
@@ -312,8 +372,8 @@ export default function WorkerCustomerLedger({
       {!customer && (
         <div>
           <div className="mb-4 flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-            <button type="button" onClick={() => setDirectoryTab("all")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}>All Customers</button>
-            <button type="button" onClick={() => setDirectoryTab("pending")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "pending" ? "bg-amber-500/15 text-amber-200" : "text-zinc-400 hover:text-white"}`}>Pending Approvals ({pendingCollections.length})</button>
+            <button type="button" onClick={() => setDirectoryTab("all")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}>All Customers (Rs. {allCustomersTotal.toLocaleString()})</button>
+            <button type="button" onClick={() => setDirectoryTab("pending")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "pending" ? "bg-amber-500/15 text-amber-200" : "text-zinc-400 hover:text-white"}`}>Pending Approvals (Rs. {pendingApprovalsTotal.toLocaleString()})</button>
           </div>
           <div className="mb-4">
             <label className="sr-only" htmlFor="ledger-customer-search">Search customer name or phone</label>

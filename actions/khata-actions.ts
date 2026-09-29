@@ -43,6 +43,13 @@ export interface CustomerDirectoryEntry {
   has_pending_approval: boolean;
 }
 
+export interface CloudLedgerSyncEntry {
+  id: string;
+  client_id: string | null;
+  customer_id: string;
+  status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+}
+
 type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval">;
 
 function calculateOutstandingBalance(
@@ -79,6 +86,7 @@ async function buildCustomerLedger(
       receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
     `)
     .eq("customer_id", customer.id)
+    .neq("status", "SETTLED")
     .order("created_at", { ascending: false });
 
   if (ledgerError) {
@@ -119,6 +127,8 @@ export async function getCustomerDirectory(): Promise<{
   success: boolean;
   error?: string;
   customers?: CustomerDirectoryEntry[];
+  sync_customers?: Array<{ id: string; total_balance: number }>;
+  ledger_sync_entries?: CloudLedgerSyncEntry[];
 }> {
   const auth = await getAuthenticatedUserProfile();
   if (!auth) return { success: false, error: "Sign in to view customer ledgers." };
@@ -126,13 +136,25 @@ export async function getCustomerDirectory(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("customers")
-    .select("id, name, phone_number, ledger_transactions(amount, transaction_type, status, created_at)")
+    .select("id, name, phone_number, ledger_transactions(id, client_id, customer_id, amount, transaction_type, status, created_at)")
     .order("created_at", { referencedTable: "ledger_transactions", ascending: false });
 
   if (error) return { success: false, error: error.message };
 
   return {
     success: true,
+    sync_customers: (data || []).map((customer) => ({
+      id: customer.id,
+      total_balance: calculateOutstandingBalance(customer.ledger_transactions || []),
+    })),
+    ledger_sync_entries: (data || []).flatMap((customer) =>
+      (customer.ledger_transactions || []).map((entry) => ({
+        id: entry.id,
+        client_id: entry.client_id || null,
+        customer_id: entry.customer_id || customer.id,
+        status: entry.status as CloudLedgerSyncEntry["status"],
+      }))
+    ),
     customers: (data || [])
       .map((customer) => {
         const ledgerEntries = customer.ledger_transactions || [];
@@ -390,7 +412,7 @@ export async function getWorkerPendingCollections(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("ledger_transactions")
-    .select("id, customer_id, customer_name, amount, created_at, status, customer:customers(name)")
+    .select("id, client_id, customer_id, customer_name, amount, created_at, status, customer:customers(name)")
     .eq("received_by_worker", auth.profile.id)
     .eq("status", "PENDING_APPROVAL")
     .order("created_at", { ascending: false });
@@ -401,55 +423,13 @@ export async function getWorkerPendingCollections(): Promise<{
     success: true,
     entries: (data || []).map((row) => ({
       id: row.id,
-      client_id: row.id,
+      client_id: row.client_id || row.id,
       customer_id: row.customer_id,
       customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
       amount: Number(row.amount) || 0,
       created_at: row.created_at,
     })),
   };
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-}
-
-async function resolveLedgerTransactionId(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  input: string
-): Promise<string | null> {
-  const rawValue = typeof input === "string" ? input.trim() : "";
-  if (!rawValue) return null;
-
-  const { data: clientMatch, error: clientError } = await supabase
-    .from("ledger_transactions")
-    .select("id")
-    .eq("client_id", rawValue)
-    .limit(1)
-    .maybeSingle();
-
-  if (clientError) {
-    console.error("Real Supabase Error:", clientError);
-    return null;
-  }
-
-  if (clientMatch?.id) return clientMatch.id;
-
-  if (!isUuid(rawValue)) return null;
-
-  const { data: idMatch, error: idError } = await supabase
-    .from("ledger_transactions")
-    .select("id")
-    .eq("id", rawValue)
-    .limit(1)
-    .maybeSingle();
-
-  if (idError) {
-    console.error("Real Supabase Error:", idError);
-    return null;
-  }
-
-  return idMatch?.id || null;
 }
 
 export async function updateLedgerApproval(
@@ -466,9 +446,7 @@ export async function updateLedgerApproval(
 
   const supabase = await createClient();
   const adminClient = getAdminClient();
-  const trueId = await resolveLedgerTransactionId(supabase, transactionId);
-
-  if (!trueId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(transactionId)) {
     return { success: false, error: "This payment could not be found for review." };
   }
 
@@ -476,7 +454,8 @@ export async function updateLedgerApproval(
   const { data, error } = await writableClient
     .from("ledger_transactions")
     .update({ status })
-    .eq("id", trueId)
+    .eq("id", transactionId)
+    .eq("status", "PENDING_APPROVAL")
     .select("id")
     .maybeSingle();
 
@@ -511,11 +490,9 @@ export async function bulkApproveLedgerPayments(
 
   const supabase = await createClient();
   const adminClient = getAdminClient();
-  const resolvedIds = (
-    await Promise.all(
-      ids.map(async (id) => resolveLedgerTransactionId(supabase, id))
-    )
-  ).filter((id): id is string => Boolean(id));
+  const resolvedIds = ids.filter((id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  );
 
   if (resolvedIds.length === 0) {
     return { success: false, error: "No valid pending payments were found to approve." };
@@ -526,6 +503,7 @@ export async function bulkApproveLedgerPayments(
     .from("ledger_transactions")
     .update({ status: "SETTLED" })
     .in("id", resolvedIds)
+    .eq("status", "PENDING_APPROVAL")
     .select("id");
 
   if (error) {

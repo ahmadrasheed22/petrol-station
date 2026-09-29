@@ -164,6 +164,7 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
       applied_sp: price,
       transaction_type: transaction.transaction_type,
       status: transaction.status,
+      updated_at: transaction.updated_at,
       created_at: transaction.created_at,
     };
   }));

@@ -62,6 +62,7 @@ export interface LedgerPayload {
   transaction_type?: "credit" | "payment";
   status?: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
   received_at?: string;
+  updated_at?: string;
   created_at?: string;
 }
 
