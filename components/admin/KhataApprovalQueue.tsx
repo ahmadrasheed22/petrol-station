@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   bulkApproveLedgerPayments,
@@ -17,10 +17,15 @@ function formatDate(value: string): string {
 
 export default function KhataApprovalQueue({ entries }: { entries: PendingApprovalEntry[] }) {
   const router = useRouter();
+  const [visibleEntries, setVisibleEntries] = useState(entries);
   const [selected, setSelected] = useState<string[]>([]);
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setVisibleEntries(entries);
+  }, [entries]);
 
   function runAction(action: () => Promise<{ success: boolean; error?: string }>, ids: string[]) {
     setError(null);
@@ -30,6 +35,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
         const result = await action();
         if (!result.success) setError(result.error || "Unable to update payment.");
         else {
+          setVisibleEntries((current) => current.filter((entry) => !ids.includes(entry.id)));
           setSelected([]);
           router.refresh();
         }
@@ -49,7 +55,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
       : [...current, id]);
   }
 
-  const allSelected = entries.length > 0 && selected.length === entries.length;
+  const allSelected = visibleEntries.length > 0 && selected.length === visibleEntries.length;
 
   return (
     <section className="rounded-2xl border border-amber-500/30 bg-zinc-900/70 p-5 shadow-xl sm:p-6">
@@ -58,7 +64,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-bold text-white">Pending Approvals</h2>
             <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-bold text-amber-300">
-              {entries.length}
+              {visibleEntries.length}
             </span>
           </div>
           <p className="mt-1 text-xs text-zinc-400">Payments received by workers awaiting owner confirmation.</p>
@@ -74,7 +80,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
       </div>
 
       {error && <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">{error}</p>}
-      {entries.length === 0 ? (
+      {visibleEntries.length === 0 ? (
         <div className="py-10 text-center text-sm text-zinc-500">No payments are waiting for approval.</div>
       ) : (
         <div className="mt-5 overflow-x-auto rounded-xl border border-zinc-800">
@@ -82,7 +88,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
             <thead className="border-b border-zinc-800 bg-zinc-950/70 text-zinc-400">
               <tr>
                 <th className="w-10 px-4 py-3">
-                  <input aria-label="Select all pending payments" type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : entries.map((entry) => entry.id))} />
+                  <input aria-label="Select all pending payments" type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : visibleEntries.map((entry) => entry.id))} />
                 </th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Amount Received</th>
@@ -93,7 +99,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/70">
-              {entries.map((entry) => (
+              {visibleEntries.map((entry) => (
                 <tr key={entry.id} className={`transition-opacity hover:bg-zinc-800/30 ${loadingIds.has(entry.id) ? "opacity-40" : ""}`}>
                   <td className="px-4 py-4"><input aria-label={`Select ${entry.customer_name}`} type="checkbox" checked={selected.includes(entry.id)} disabled={loadingIds.has(entry.id)} onChange={() => toggleSelected(entry.id)} /></td>
                   <td className="px-4 py-4 font-semibold text-white">{entry.customer_name}</td>

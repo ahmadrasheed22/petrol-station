@@ -51,21 +51,47 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
 }
 
 export async function reconcileOfflineCustomersWithCloud(
-  cloudCustomers: Array<{ id: string; total_balance: number }>
+  cloudCustomers: Array<{ id: string; total_balance: number }>,
+  cloudLedgerEntries: Array<{
+    id: string;
+    client_id: string | null;
+    customer_id: string;
+    status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+  }> = []
 ): Promise<void> {
-  const cloudCustomerIds = new Set(
-    cloudCustomers
-      .filter((customer) => customer.total_balance > 0)
-      .map((customer) => customer.id)
+  const cloudCustomerBalances = new Map(cloudCustomers.map((customer) => [customer.id, customer.total_balance]));
+  const settledCloudIds = new Set(cloudLedgerEntries.filter((entry) => entry.status === "SETTLED").map((entry) => entry.id));
+  const settledCloudClientIds = new Set(
+    cloudLedgerEntries
+      .filter((entry) => entry.status === "SETTLED" && entry.client_id)
+      .map((entry) => entry.client_id)
   );
+  const zeroBalanceCustomerIds = new Set(
+    cloudCustomers.filter((customer) => customer.total_balance <= 0).map((customer) => customer.id)
+  );
+  const localTransactions = await db.pendingLedgerTransactions.toArray();
+  const transactionIdsToDelete = localTransactions
+    .filter((transaction) => {
+      if (transaction.sync_status !== "synced" || transaction.id === undefined) return false;
+      return transaction.status === "SETTLED" ||
+        (transaction.cloud_id ? settledCloudIds.has(transaction.cloud_id) : false) ||
+        settledCloudClientIds.has(transaction.client_id) ||
+        (transaction.customer_id ? zeroBalanceCustomerIds.has(transaction.customer_id) : false);
+    })
+    .map((transaction) => transaction.id as number);
   const localCustomers = await db.customers.toArray();
   const customerIdsToDelete = localCustomers
-    .filter((customer) => !cloudCustomerIds.has(customer.id))
+    .filter((customer) => customer.sync_status === "synced" && (cloudCustomerBalances.get(customer.id) ?? 0) <= 0)
     .map((customer) => customer.id);
 
-  if (customerIdsToDelete.length > 0) {
-    await db.customers.bulkDelete(customerIdsToDelete);
-  }
+  await db.transaction("rw", db.pendingLedgerTransactions, db.customers, async () => {
+    if (transactionIdsToDelete.length > 0) {
+      await db.pendingLedgerTransactions.bulkDelete(transactionIdsToDelete);
+    }
+    if (customerIdsToDelete.length > 0) {
+      await db.customers.bulkDelete(customerIdsToDelete);
+    }
+  });
 }
 
 export async function addPendingLedgerTx(txData: {

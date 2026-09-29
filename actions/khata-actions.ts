@@ -43,6 +43,13 @@ export interface CustomerDirectoryEntry {
   has_pending_approval: boolean;
 }
 
+export interface CloudLedgerSyncEntry {
+  id: string;
+  client_id: string | null;
+  customer_id: string;
+  status: "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+}
+
 type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval">;
 
 function calculateOutstandingBalance(
@@ -119,6 +126,8 @@ export async function getCustomerDirectory(): Promise<{
   success: boolean;
   error?: string;
   customers?: CustomerDirectoryEntry[];
+  sync_customers?: Array<{ id: string; total_balance: number }>;
+  ledger_sync_entries?: CloudLedgerSyncEntry[];
 }> {
   const auth = await getAuthenticatedUserProfile();
   if (!auth) return { success: false, error: "Sign in to view customer ledgers." };
@@ -126,13 +135,25 @@ export async function getCustomerDirectory(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("customers")
-    .select("id, name, phone_number, ledger_transactions(amount, transaction_type, status, created_at)")
+    .select("id, name, phone_number, ledger_transactions(id, client_id, customer_id, amount, transaction_type, status, created_at)")
     .order("created_at", { referencedTable: "ledger_transactions", ascending: false });
 
   if (error) return { success: false, error: error.message };
 
   return {
     success: true,
+    sync_customers: (data || []).map((customer) => ({
+      id: customer.id,
+      total_balance: calculateOutstandingBalance(customer.ledger_transactions || []),
+    })),
+    ledger_sync_entries: (data || []).flatMap((customer) =>
+      (customer.ledger_transactions || []).map((entry) => ({
+        id: entry.id,
+        client_id: entry.client_id || null,
+        customer_id: entry.customer_id || customer.id,
+        status: entry.status as CloudLedgerSyncEntry["status"],
+      }))
+    ),
     customers: (data || [])
       .map((customer) => {
         const ledgerEntries = customer.ledger_transactions || [];

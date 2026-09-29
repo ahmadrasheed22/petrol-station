@@ -66,7 +66,10 @@ export default function WorkerCustomerLedger({
       } else {
         setError(null);
         const cloudCustomers = directoryResult.customers || [];
-        await reconcileOfflineCustomersWithCloud(cloudCustomers);
+        await reconcileOfflineCustomersWithCloud(
+          directoryResult.sync_customers || cloudCustomers,
+          directoryResult.ledger_sync_entries || []
+        );
         setCustomers(cloudCustomers);
       }
 
@@ -279,6 +282,8 @@ export default function WorkerCustomerLedger({
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.customer_name.toLocaleLowerCase().includes(query);
   });
+  const allCustomersTotal = directoryCustomers.reduce((total, item) => total + Math.max(Number(item.total_balance) || 0, 0), 0);
+  const pendingApprovalsTotal = pendingCollections.reduce((total, item) => total + (Number(item.amount) || 0), 0);
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl sm:p-6">
@@ -312,8 +317,8 @@ export default function WorkerCustomerLedger({
       {!customer && (
         <div>
           <div className="mb-4 flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-            <button type="button" onClick={() => setDirectoryTab("all")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}>All Customers</button>
-            <button type="button" onClick={() => setDirectoryTab("pending")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "pending" ? "bg-amber-500/15 text-amber-200" : "text-zinc-400 hover:text-white"}`}>Pending Approvals ({pendingCollections.length})</button>
+            <button type="button" onClick={() => setDirectoryTab("all")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}>All Customers (Rs. {allCustomersTotal.toLocaleString()})</button>
+            <button type="button" onClick={() => setDirectoryTab("pending")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${directoryTab === "pending" ? "bg-amber-500/15 text-amber-200" : "text-zinc-400 hover:text-white"}`}>Pending Approvals (Rs. {pendingApprovalsTotal.toLocaleString()})</button>
           </div>
           <div className="mb-4">
             <label className="sr-only" htmlFor="ledger-customer-search">Search customer name or phone</label>
