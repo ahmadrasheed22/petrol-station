@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { login, loginWorker, registerOwner } from "@/actions/auth-actions";
 import LoginModePanel, { type LoginPageMode } from "@/components/LoginModePanel";
 import WorkerLoginForm from "@/components/WorkerLoginForm";
@@ -21,42 +22,57 @@ export default function LoginPage() {
   const [regPasswordConfirm, setRegPasswordConfirm] = useState("");
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleModeChange = (newMode: LoginPageMode) => {
     setMode(newMode);
     setError(null);
   };
 
-  const handleWorkerSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleWorkerSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
-    startTransition(async () => {
+    setIsLoading(true);
+    try {
       const result = await loginWorker(workerIdentifier, workerPassword);
       if (result?.error) setError(result.error);
-    });
+    } catch (err: unknown) {
+      if (isRedirectError(err)) throw err;
+      setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+      setIsLoading(false);
+    }
   };
 
-  const handleOwnerSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleOwnerSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
-    startTransition(async () => {
+    setIsLoading(true);
+    try {
       const result = await login(ownerEmail, ownerPassword);
       if (result?.error) setError(result.error);
-    });
+    } catch (err: unknown) {
+      if (isRedirectError(err)) throw err;
+      setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+      setIsLoading(false);
+    }
   };
 
-  const handleRegisterSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleRegisterSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     if (regPassword !== regPasswordConfirm) {
       setError("Passwords do not match. Please try again.");
       return;
     }
-    startTransition(async () => {
+    setIsLoading(true);
+    try {
       const result = await registerOwner(regName, regEmail, regPassword);
       if (result?.error) setError(result.error);
-    });
+    } catch (err: unknown) {
+      if (isRedirectError(err)) throw err;
+      setError(err instanceof Error ? err.message : "Unable to create your account. Please try again.");
+      setIsLoading(false);
+    }
   };
 
   const isWorkerEmail = workerIdentifier.includes("@");
@@ -97,7 +113,7 @@ export default function LoginPage() {
               password={workerPassword}
               isEmail={isWorkerEmail}
               showPassword={showWorkerPassword}
-              isPending={isPending}
+              isPending={isLoading}
               onSubmit={handleWorkerSubmit}
               onIdentifierChange={setWorkerIdentifier}
               onPasswordChange={setWorkerPassword}
@@ -110,7 +126,7 @@ export default function LoginPage() {
               email={ownerEmail}
               password={ownerPassword}
               showPassword={showOwnerPassword}
-              isPending={isPending}
+              isPending={isLoading}
               onSubmit={handleOwnerSubmit}
               onEmailChange={setOwnerEmail}
               onPasswordChange={setOwnerPassword}
@@ -126,7 +142,7 @@ export default function LoginPage() {
               password={regPassword}
               passwordConfirm={regPasswordConfirm}
               showPassword={showRegPassword}
-              isPending={isPending}
+              isPending={isLoading}
               onSubmit={handleRegisterSubmit}
               onNameChange={setRegName}
               onEmailChange={setRegEmail}
