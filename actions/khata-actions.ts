@@ -432,48 +432,6 @@ export async function getWorkerPendingCollections(): Promise<{
   };
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-}
-
-async function resolveLedgerTransactionId(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  input: string
-): Promise<string | null> {
-  const rawValue = typeof input === "string" ? input.trim() : "";
-  if (!rawValue) return null;
-
-  const { data: clientMatch, error: clientError } = await supabase
-    .from("ledger_transactions")
-    .select("id")
-    .eq("client_id", rawValue)
-    .limit(1)
-    .maybeSingle();
-
-  if (clientError) {
-    console.error("Real Supabase Error:", clientError);
-    return null;
-  }
-
-  if (clientMatch?.id) return clientMatch.id;
-
-  if (!isUuid(rawValue)) return null;
-
-  const { data: idMatch, error: idError } = await supabase
-    .from("ledger_transactions")
-    .select("id")
-    .eq("id", rawValue)
-    .limit(1)
-    .maybeSingle();
-
-  if (idError) {
-    console.error("Real Supabase Error:", idError);
-    return null;
-  }
-
-  return idMatch?.id || null;
-}
-
 export async function updateLedgerApproval(
   transactionId: string,
   status: "SETTLED" | "UNPAID"
@@ -488,9 +446,7 @@ export async function updateLedgerApproval(
 
   const supabase = await createClient();
   const adminClient = getAdminClient();
-  const trueId = await resolveLedgerTransactionId(supabase, transactionId);
-
-  if (!trueId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(transactionId)) {
     return { success: false, error: "This payment could not be found for review." };
   }
 
@@ -498,7 +454,7 @@ export async function updateLedgerApproval(
   const { data, error } = await writableClient
     .from("ledger_transactions")
     .update({ status })
-    .eq("id", trueId)
+    .eq("id", transactionId)
     .eq("status", "PENDING_APPROVAL")
     .select("id")
     .maybeSingle();
@@ -534,11 +490,9 @@ export async function bulkApproveLedgerPayments(
 
   const supabase = await createClient();
   const adminClient = getAdminClient();
-  const resolvedIds = (
-    await Promise.all(
-      ids.map(async (id) => resolveLedgerTransactionId(supabase, id))
-    )
-  ).filter((id): id is string => Boolean(id));
+  const resolvedIds = ids.filter((id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  );
 
   if (resolvedIds.length === 0) {
     return { success: false, error: "No valid pending payments were found to approve." };

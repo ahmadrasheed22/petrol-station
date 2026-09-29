@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
@@ -40,6 +40,7 @@ export default function WorkerCustomerLedger({
   const [error, setError] = useState<string | null>(null);
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
+  const directoryRequestRef = useRef(0);
   const offlineDirectory = useLiveQuery(
     async () => {
       const [offlineCustomers, ledgerTransactions] = await Promise.all([
@@ -53,8 +54,9 @@ export default function WorkerCustomerLedger({
   );
 
   const refreshDirectory = useCallback(async () => {
+    const requestId = ++directoryRequestRef.current;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      setIsLoadingDirectory(false);
+      if (requestId === directoryRequestRef.current) setIsLoadingDirectory(false);
       return;
     }
 
@@ -63,6 +65,7 @@ export default function WorkerCustomerLedger({
         getCustomerDirectory(),
         getWorkerPendingCollections(),
       ]);
+      if (requestId !== directoryRequestRef.current) return;
 
       if (!directoryResult.success) {
         setError(directoryResult.error || "Unable to load the customer directory.");
@@ -82,7 +85,7 @@ export default function WorkerCustomerLedger({
     } catch (error) {
       console.warn("Worker directory refresh skipped after a network failure:", error);
     }
-    setIsLoadingDirectory(false);
+    if (requestId === directoryRequestRef.current) setIsLoadingDirectory(false);
   }, []);
 
   useEffect(() => {
@@ -300,11 +303,20 @@ export default function WorkerCustomerLedger({
       }
 
       if (!updated) return;
-      await refreshDirectory();
-      if (customer) {
-        const ledgerResult = await getCustomerLedgerById(customer.id);
-        if (ledgerResult.success) setCloudLedgerEntries(ledgerResult.entries || []);
+      if (!isOfflineEntry) {
+        const receivedAt = new Date().toISOString();
+        setCloudLedgerEntries((entries) => entries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                status: "PENDING_APPROVAL",
+                received_at: receivedAt,
+                received_by_worker_name: "Current Worker",
+              }
+            : entry
+        ));
       }
+      void refreshDirectory();
     } finally {
       setLoadingIds((current) => {
         const next = new Set(current);
