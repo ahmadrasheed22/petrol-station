@@ -162,6 +162,7 @@ export async function syncLedgerToCloudService(
       const price = entry.price_per_liter ?? entry.applied_sp ?? 0;
       const resolvedCustomerId = entryCustomerMap.get(entry);
       return {
+        id: entry.id,
         customer_id: resolvedCustomerId,
         customer_name: entry.customer_name || null,
         worker_id:
@@ -191,7 +192,10 @@ export async function syncLedgerToCloudService(
 
     const { data, error } = await supabase
       .from("ledger_transactions")
-      .insert(formattedEntries)
+      .upsert(formattedEntries, {
+        onConflict: "id",
+        ignoreDuplicates: true,
+      })
       .select("id");
 
     if (error) {
@@ -209,8 +213,10 @@ export async function syncLedgerToCloudService(
       return { success: false, error: fullErrorMessage };
     }
 
+    const insertedIds = new Set((data || []).map((entry) => entry.id));
     const customerDeltas = new Map<string, number>();
     for (const entry of ledgerEntries) {
+      if (!entry.id || !insertedIds.has(entry.id)) continue;
       const customerId = entryCustomerMap.get(entry);
       if (customerId) {
         const delta = (entry.transaction_type || "credit") === "credit" ? entry.amount : -entry.amount;

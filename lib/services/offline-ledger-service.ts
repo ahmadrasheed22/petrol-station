@@ -4,27 +4,35 @@ import { triggerAutoSyncIfOnline } from "@/lib/services/sync-service";
 export const DEFAULT_CUSTOMERS: CustomerRecord[] = [
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    client_id: "11111111-1111-4111-8111-111111111111",
     name: "Malik Goods Transport",
     phone_number: "",
     total_balance: 15400,
+    sync_status: "synced",
   },
   {
     id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    client_id: "22222222-2222-4222-8222-222222222222",
     name: "Al-Madina Bus Service",
     phone_number: "",
     total_balance: 42000,
+    sync_status: "synced",
   },
   {
     id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    client_id: "33333333-3333-4333-8333-333333333333",
     name: "Chaudhry Logistics",
     phone_number: "",
     total_balance: 8500,
+    sync_status: "synced",
   },
   {
     id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    client_id: "44444444-4444-4444-8444-444444444444",
     name: "Haji Aslam & Sons",
     phone_number: "",
     total_balance: 0,
+    sync_status: "synced",
   },
 ];
 
@@ -45,31 +53,19 @@ export async function getOfflineCustomers(): Promise<CustomerRecord[]> {
 export async function reconcileOfflineCustomersWithCloud(
   cloudCustomers: Array<{ id: string; total_balance: number }>
 ): Promise<void> {
-  const settledCustomerIds = new Set(
+  const cloudCustomerIds = new Set(
     cloudCustomers
-      .filter((customer) => customer.total_balance <= 0)
+      .filter((customer) => customer.total_balance > 0)
       .map((customer) => customer.id)
   );
-  if (settledCustomerIds.size === 0) return;
+  const localCustomers = await db.customers.toArray();
+  const customerIdsToDelete = localCustomers
+    .filter((customer) => !cloudCustomerIds.has(customer.id))
+    .map((customer) => customer.id);
 
-  const localTransactions = await db.pendingLedgerTransactions.toArray();
-  const protectedCustomerIds = new Set(
-    localTransactions
-      .filter((transaction) =>
-        transaction.customer_id &&
-        ["draft", "pending", "failed"].includes(transaction.sync_status)
-      )
-      .map((transaction) => transaction.customer_id as string)
-  );
-
-  const customerIdsToReset = Array.from(settledCustomerIds).filter(
-    (customerId) => !protectedCustomerIds.has(customerId)
-  );
-  if (customerIdsToReset.length === 0) return;
-
-  await db.customers.bulkUpdate(
-    customerIdsToReset.map((id) => ({ key: id, changes: { total_balance: 0 } }))
-  );
+  if (customerIdsToDelete.length > 0) {
+    await db.customers.bulkDelete(customerIdsToDelete);
+  }
 }
 
 export async function addPendingLedgerTx(txData: {
@@ -111,16 +107,20 @@ export async function addPendingLedgerTx(txData: {
 
       await db.customers.add({
         id: customerId,
+        client_id: crypto.randomUUID(),
         name: rawCustomerName,
         phone_number: phoneNumber,
         total_balance: 0,
+        sync_status: "pending",
         created_at: now,
         updated_at: now,
       });
     }
   }
 
-  const id = await db.pendingLedgerTransactions.add({
+  const clientId = crypto.randomUUID();
+  const entryPayload = {
+    client_id: clientId,
     customer_id: customerId,
     customer_name: rawCustomerName,
     phone_number: phoneNumber,
@@ -135,8 +135,24 @@ export async function addPendingLedgerTx(txData: {
     applied_sp: price,
     transaction_type: txType,
     status: txType === "credit" ? "UNPAID" : "PENDING_APPROVAL",
-    sync_status: "pending",
     created_at: now,
+  } as const;
+
+  const id = await db.pendingLedgerTransactions.add({
+    cloud_id:
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : undefined,
+    ...entryPayload,
+    sync_status: "pending",
+  });
+
+  await db.outbox.add({
+    opId: crypto.randomUUID(),
+    entryId: id as number,
+    type: "CREATE_ENTRY",
+    payload: entryPayload,
+    createdAt: now,
   });
 
   if (customerId) {
@@ -157,6 +173,57 @@ export async function addPendingLedgerTx(txData: {
 
   triggerAutoSyncIfOnline();
   return id as number;
+}
+
+export async function markReceivedLocally(entryId: number): Promise<boolean> {
+  let updated = false;
+
+  await db.transaction("rw", db.pendingLedgerTransactions, db.outbox, async () => {
+    const entry = await db.pendingLedgerTransactions.get(entryId);
+    // Only an unpaid local entry can enter the worker approval flow.
+    if (!entry || entry.status !== "UNPAID") return;
+
+    const receivedAt = new Date().toISOString();
+    await db.pendingLedgerTransactions.update(entryId, {
+      status: "PENDING_APPROVAL",
+      received_at: receivedAt,
+      sync_status: "pending",
+    });
+
+    const createJob = await db.outbox
+      .where("entryId")
+      .equals(entryId)
+      .and((job) => job.type === "CREATE_ENTRY")
+      .first();
+
+    if (createJob) {
+      await db.outbox.update(createJob.opId, {
+        payload: {
+          ...createJob.payload,
+          client_id: entry.client_id,
+          status: "PENDING_APPROVAL",
+          received_at: receivedAt,
+        },
+      });
+    } else {
+      await db.outbox.add({
+        opId: crypto.randomUUID(),
+        entryId,
+        type: "MARK_RECEIVED",
+        payload: {
+          client_id: entry.client_id,
+          status: "PENDING_APPROVAL",
+          received_at: receivedAt,
+        },
+        createdAt: receivedAt,
+      });
+    }
+
+    updated = true;
+  });
+
+  if (updated) triggerAutoSyncIfOnline();
+  return updated;
 }
 
 export async function deletePendingLedgerTx(id: number): Promise<void> {
@@ -234,9 +301,11 @@ export async function updatePendingLedgerTx(
 
             await db.customers.add({
               id: newCustomerId,
+              client_id: crypto.randomUUID(),
               name: trimmedName,
               phone_number: oldTx.phone_number,
               total_balance: oldTx.transaction_type === "credit" ? data.amount : -data.amount,
+              sync_status: "pending",
               created_at: now,
               updated_at: now,
             });

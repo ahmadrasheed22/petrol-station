@@ -1,20 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
-  getCustomerLedgerById,
-  getCustomerLedgerByName,
   getWorkerPendingCollections,
-  markLedgerPaymentReceived,
   type CustomerDirectoryEntry,
   type CustomerLedgerEntry,
   type WorkerPendingCollection,
 } from "@/actions/khata-actions";
 import { db, type PendingLedgerTransaction } from "@/lib/offline-db";
 import { useRealtimeSync } from "@/lib/hooks/useRealtimeSync";
-import { reconcileOfflineCustomersWithCloud } from "@/lib/services/offline-ledger-service";
+import {
+  markReceivedLocally,
+  reconcileOfflineCustomersWithCloud,
+} from "@/lib/services/offline-ledger-service";
 import { formatSouthAsianAmountInWords } from "@/lib/utils/number-to-words";
 
 function getCustomerKey(name: string, phoneNumber: string): string {
@@ -31,23 +31,17 @@ export default function WorkerCustomerLedger({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [customers, setCustomers] = useState<CustomerDirectoryEntry[]>([]);
-  const [pendingCollections, setPendingCollections] = useState<WorkerPendingCollection[]>([]);
+  const [cloudPendingCollections, setCloudPendingCollections] = useState<WorkerPendingCollection[]>([]);
   const [directoryTab, setDirectoryTab] = useState<"all" | "pending">("all");
   const [customer, setCustomer] = useState<CustomerDirectoryEntry | null>(null);
-  const [entries, setEntries] = useState<CustomerLedgerEntry[]>([]);
-  const [totalLiters, setTotalLiters] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
-  const requestIdRef = useRef(0);
   const offlineDirectory = useLiveQuery(
     async () => {
       const [offlineCustomers, ledgerTransactions] = await Promise.all([
         db.customers.toArray(),
-        db.pendingLedgerTransactions
-          .filter((transaction) => transaction.sync_status !== "draft")
-          .toArray(),
+        db.pendingLedgerTransactions.toArray(),
       ]);
       return { offlineCustomers, ledgerTransactions };
     },
@@ -56,22 +50,31 @@ export default function WorkerCustomerLedger({
   );
 
   const refreshDirectory = useCallback(async () => {
-    const [directoryResult, pendingResult] = await Promise.all([
-      getCustomerDirectory(),
-      getWorkerPendingCollections(),
-    ]);
-
-    if (!directoryResult.success) {
-      setError(directoryResult.error || "Unable to load the customer directory.");
-    } else {
-      setError(null);
-      const cloudCustomers = directoryResult.customers || [];
-      await reconcileOfflineCustomersWithCloud(cloudCustomers);
-      setCustomers(cloudCustomers);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setIsLoadingDirectory(false);
+      return;
     }
 
-    if (pendingResult.success) {
-      setPendingCollections(pendingResult.entries || []);
+    try {
+      const [directoryResult, pendingResult] = await Promise.all([
+        getCustomerDirectory(),
+        getWorkerPendingCollections(),
+      ]);
+
+      if (!directoryResult.success) {
+        setError(directoryResult.error || "Unable to load the customer directory.");
+      } else {
+        setError(null);
+        const cloudCustomers = directoryResult.customers || [];
+        await reconcileOfflineCustomersWithCloud(cloudCustomers);
+        setCustomers(cloudCustomers);
+      }
+
+      if (pendingResult.success) {
+        setCloudPendingCollections(pendingResult.entries || []);
+      }
+    } catch (error) {
+      console.warn("Worker directory refresh skipped after a network failure:", error);
     }
     setIsLoadingDirectory(false);
   }, []);
@@ -86,75 +89,10 @@ export default function WorkerCustomerLedger({
   });
 
   async function openCustomerById(customerId: string) {
-    const targetCustomer = customers.find((item) => item.id === customerId) || null;
-    const requestId = ++requestIdRef.current;
+    const targetCustomer = directoryCustomers.find((item) => item.id === customerId) || null;
 
     setError(null);
     setCustomer(targetCustomer);
-    setEntries([]);
-    setTotalLiters(null);
-    setIsLoadingDetail(true);
-
-    const resolveCustomerLedger = async (customer: CustomerDirectoryEntry) => {
-      const result = customer.phone_number.trim()
-        ? await getCustomerLedgerById(customer.id)
-        : await getCustomerLedgerByName(customer.name);
-
-      if (requestId !== requestIdRef.current) return null;
-      if (!result.success) {
-        setError(result.error || "Unable to load this customer ledger.");
-        setIsLoadingDetail(false);
-        return null;
-      }
-      if (!result.customer) {
-        setError("This customer could not be found in the cloud ledger.");
-        setIsLoadingDetail(false);
-        return null;
-      }
-
-      const freshCustomer = {
-        ...customer,
-        ...result.customer,
-        total_balance: result.customer.total_balance,
-      };
-
-      setCustomer(freshCustomer);
-      setCustomers((current) => [
-        freshCustomer,
-        ...current.filter((item) => item.id !== freshCustomer.id),
-      ]);
-      setEntries(result.entries || []);
-      setTotalLiters(result.total_liters ?? 0);
-      setIsLoadingDetail(false);
-      return freshCustomer;
-    };
-
-    const fallbackResult = targetCustomer ? await resolveCustomerLedger(targetCustomer) : null;
-    if (fallbackResult || !targetCustomer) {
-      return;
-    }
-
-    const idResult = await getCustomerLedgerById(customerId);
-    if (requestId !== requestIdRef.current) return;
-    if (!idResult.success) {
-      setError(idResult.error || "Unable to load this customer ledger.");
-      setIsLoadingDetail(false);
-      return;
-    }
-    if (!idResult.customer) {
-      setError("This customer could not be found in the cloud ledger.");
-      setIsLoadingDetail(false);
-      return;
-    }
-
-    setCustomer(idResult.customer);
-    setCustomers((current) => [
-      idResult.customer!,
-      ...current.filter((item) => item.id !== idResult.customer!.id),
-    ]);
-    setEntries(idResult.entries || []);
-    setTotalLiters(idResult.total_liters ?? 0);
-    setIsLoadingDetail(false);
   }
 
   useEffect(() => {
@@ -214,9 +152,7 @@ export default function WorkerCustomerLedger({
 
       if (existing && cloudKey) {
         const pendingDelta = group.transactions.reduce((total, transaction) => {
-          if (transaction.sync_status !== "pending" && transaction.sync_status !== "failed") {
-            return total;
-          }
+          if (transaction.sync_status !== "pending") return total;
           return total + (transaction.transaction_type === "credit" ? transaction.amount : -transaction.amount);
         }, 0);
         merged.set(cloudKey, {
@@ -252,27 +188,78 @@ export default function WorkerCustomerLedger({
     );
   }, [customers, offlineDirectory]);
 
+  function toLocalLedgerEntry(transaction: PendingLedgerTransaction): CustomerLedgerEntry {
+    return {
+      id: `offline:${transaction.id}`,
+      customer_name: transaction.customer_name,
+      liters: transaction.liters || 0,
+      amount: transaction.amount,
+      applied_sp: transaction.applied_sp || transaction.price_per_liter || 0,
+      transaction_type: transaction.transaction_type,
+      status: transaction.status,
+      created_at: transaction.created_at,
+      received_at: transaction.received_at || null,
+      issued_by_worker_name: "Current Worker",
+      received_by_worker_name: transaction.received_by_worker ? "Current Worker" : null,
+    };
+  }
+
+  const detailEntries = useMemo(() => {
+    if (!customer) return [];
+    return (offlineDirectory?.ledgerTransactions || [])
+      .filter((transaction) => transaction.customer_id === customer.id)
+      .map(toLocalLedgerEntry)
+      .sort((first, second) => second.created_at.localeCompare(first.created_at));
+  }, [customer, offlineDirectory]);
+
+  const pendingCollections = useMemo<WorkerPendingCollection[]>(() => {
+    const merged = new Map<string, WorkerPendingCollection>();
+    const aliases = new Map<string, string>();
+
+    for (const cloudEntry of cloudPendingCollections) {
+      const key = cloudEntry.client_id;
+      merged.set(key, cloudEntry);
+      aliases.set(cloudEntry.id, key);
+      aliases.set(cloudEntry.client_id, key);
+    }
+
+    for (const transaction of offlineDirectory?.ledgerTransactions || []) {
+      if (transaction.status !== "PENDING_APPROVAL") continue;
+
+      const localKey = transaction.client_id;
+      const matchingKey = aliases.get(transaction.cloud_id || "") || aliases.get(localKey) || localKey;
+      const localEntry: WorkerPendingCollection = {
+        id: transaction.cloud_id || `offline:${transaction.id}`,
+        client_id: localKey,
+        customer_id: transaction.customer_id || `offline:${localKey}`,
+        customer_name: transaction.customer_name,
+        amount: transaction.amount,
+        created_at: transaction.created_at,
+      };
+      merged.delete(matchingKey);
+      merged.set(localKey, localEntry);
+      aliases.set(localEntry.id, localKey);
+      aliases.set(localKey, localKey);
+    }
+
+    return Array.from(merged.values()).sort((first, second) =>
+      second.created_at.localeCompare(first.created_at)
+    );
+  }, [cloudPendingCollections, offlineDirectory]);
+
+  const totalLiters = detailEntries.reduce(
+    (total, entry) => total + (entry.transaction_type === "credit" ? entry.liters : 0),
+    0
+  );
+
   async function markReceived(entryId: string) {
     if (loadingIds.has(entryId)) return;
     setError(null);
     setLoadingIds((current) => new Set(current).add(entryId));
     try {
-      const result = await markLedgerPaymentReceived(entryId);
-      if (!result.success) {
-        setError(result.error || "Unable to record payment receipt.");
-        return;
-      }
-      setEntries((current) => current.map((entry) =>
-        entry.id === entryId
-          ? {
-              ...entry,
-              status: "PENDING_APPROVAL",
-              received_at: result.receivedAt || new Date().toISOString(),
-              received_by_worker_name: result.workerName || "Unknown Worker",
-            }
-          : entry
-      ));
-      void refreshDirectory();
+      const localId = Number(entryId.replace(/^offline:/, ""));
+      const updated = Number.isInteger(localId) && await markReceivedLocally(localId);
+      if (!updated) setError("This entry is no longer unpaid. Refresh the ledger.");
     } finally {
       setLoadingIds((current) => {
         const next = new Set(current);
@@ -283,7 +270,7 @@ export default function WorkerCustomerLedger({
   }
 
   const filteredCustomers = directoryCustomers.filter((item) => {
-    if (item.total_balance <= 0) return false;
+    if (!(Number(item.total_balance) > 0)) return false;
     const query = searchQuery.trim().toLocaleLowerCase();
     return !query || item.name.toLocaleLowerCase().includes(query) ||
       item.phone_number.toLocaleLowerCase().includes(query);
@@ -299,7 +286,7 @@ export default function WorkerCustomerLedger({
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-white">Customer Ledger</h2>
-            <p className="mt-1 text-xs text-zinc-400">Cloud transaction history</p>
+            <p className="mt-1 text-xs text-zinc-400">Transaction history</p>
           </div>
           <button
             type="button"
@@ -344,15 +331,7 @@ export default function WorkerCustomerLedger({
 
       {customer && (
         <div className="space-y-4 transition-opacity duration-200">
-          {isLoadingDetail ? (
-            <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950/40" aria-live="polite" aria-label="Loading ledger">
-              <div className="flex items-center gap-3 text-zinc-200">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-emerald-400" />
-                <span className="text-sm font-medium text-zinc-200">Loading...</span>
-              </div>
-            </div>
-          ) : (
-            <>
+          <>
               <div className="flex flex-col justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 sm:flex-row sm:items-center">
                 <div>
                   <h3 className="font-semibold text-white">{customer.name}</h3>
@@ -374,11 +353,11 @@ export default function WorkerCustomerLedger({
               </div>
 
               <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40">
-                {entries.length === 0 ? (
+                {detailEntries.length === 0 ? (
                   <p className="p-6 text-center text-sm text-zinc-500">No ledger transactions for this customer.</p>
                 ) : (
                   <ul className="divide-y divide-zinc-800/80">
-                    {entries.map((entry) => (
+                    {detailEntries.map((entry) => (
                       <li key={entry.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
@@ -431,9 +410,8 @@ export default function WorkerCustomerLedger({
                   </ul>
                 )}
               </div>
-              <p className="text-right text-[11px] text-zinc-500">Latest cloud records first</p>
-            </>
-          )}
+              <p className="text-right text-[11px] text-zinc-500">Latest records first</p>
+          </>
         </div>
       )}
 

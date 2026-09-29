@@ -51,6 +51,12 @@ export default function CreditSaleForm({
     async function initData() {
       setIsLoadingProducts(true);
       try {
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          setProducts(DEFAULT_PRODUCTS);
+          setSelectedProductId(DEFAULT_PRODUCTS[0].id);
+          return;
+        }
+
         const supabase = createClient();
         const { data, error } = await supabase
           .from("products")

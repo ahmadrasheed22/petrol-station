@@ -10,6 +10,7 @@ export {
   addPendingLedgerTx,
   deletePendingLedgerTx,
   getOfflineCustomers,
+  markReceivedLocally,
   updatePendingLedgerTx,
 } from "@/lib/services/offline-ledger-service";
 
