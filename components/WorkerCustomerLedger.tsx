@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getCustomerDirectory,
+  getCustomerLedgerById,
+  markLedgerPaymentReceived,
   getWorkerPendingCollections,
   type CustomerDirectoryEntry,
   type CustomerLedgerEntry,
@@ -34,6 +36,7 @@ export default function WorkerCustomerLedger({
   const [cloudPendingCollections, setCloudPendingCollections] = useState<WorkerPendingCollection[]>([]);
   const [directoryTab, setDirectoryTab] = useState<"all" | "pending">("all");
   const [customer, setCustomer] = useState<CustomerDirectoryEntry | null>(null);
+  const [cloudLedgerEntries, setCloudLedgerEntries] = useState<CustomerLedgerEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
@@ -88,7 +91,14 @@ export default function WorkerCustomerLedger({
 
   useRealtimeSync({
     tables: ["ledger_transactions"],
-    onPayload: () => void refreshDirectory(),
+    onPayload: () => {
+      void refreshDirectory();
+      if (customer) {
+        void getCustomerLedgerById(customer.id).then((result) => {
+          if (result.success) setCloudLedgerEntries(result.entries || []);
+        });
+      }
+    },
   });
 
   async function openCustomerById(customerId: string) {
@@ -96,6 +106,15 @@ export default function WorkerCustomerLedger({
 
     setError(null);
     setCustomer(targetCustomer);
+    setCloudLedgerEntries([]);
+    if (!targetCustomer) return;
+
+    const result = await getCustomerLedgerById(targetCustomer.id);
+    if (!result.success) {
+      setError(result.error || "Unable to load this customer ledger.");
+      return;
+    }
+    setCloudLedgerEntries(result.entries || []);
   }
 
   useEffect(() => {
@@ -209,11 +228,20 @@ export default function WorkerCustomerLedger({
 
   const detailEntries = useMemo(() => {
     if (!customer) return [];
-    return (offlineDirectory?.ledgerTransactions || [])
-      .filter((transaction) => transaction.customer_id === customer.id)
-      .map(toLocalLedgerEntry)
+    const cloudIds = new Set(cloudLedgerEntries.map((entry) => entry.id));
+    const localEntries = (offlineDirectory?.ledgerTransactions || [])
+      .filter((transaction) => {
+        const sameCustomer = transaction.customer_id === customer.id ||
+          (transaction.customer_name.trim().toLocaleLowerCase() === customer.name.trim().toLocaleLowerCase() &&
+            (!transaction.phone_number || !customer.phone_number || transaction.phone_number === customer.phone_number));
+        return sameCustomer && transaction.status !== "SETTLED" &&
+          (!transaction.cloud_id || !cloudIds.has(transaction.cloud_id));
+      })
+      .map(toLocalLedgerEntry);
+
+    return [...cloudLedgerEntries, ...localEntries]
       .sort((first, second) => second.created_at.localeCompare(first.created_at));
-  }, [customer, offlineDirectory]);
+  }, [cloudLedgerEntries, customer, offlineDirectory]);
 
   const pendingCollections = useMemo<WorkerPendingCollection[]>(() => {
     const merged = new Map<string, WorkerPendingCollection>();
@@ -260,9 +288,23 @@ export default function WorkerCustomerLedger({
     setError(null);
     setLoadingIds((current) => new Set(current).add(entryId));
     try {
-      const localId = Number(entryId.replace(/^offline:/, ""));
-      const updated = Number.isInteger(localId) && await markReceivedLocally(localId);
-      if (!updated) setError("This entry is no longer unpaid. Refresh the ledger.");
+      const isOfflineEntry = entryId.startsWith("offline:");
+      let updated = false;
+      if (isOfflineEntry) {
+        const localId = Number(entryId.replace(/^offline:/, ""));
+        updated = Number.isInteger(localId) && await markReceivedLocally(localId);
+      } else {
+        const result = await markLedgerPaymentReceived(entryId);
+        if (!result.success) setError(result.error || "Unable to submit this payment for approval.");
+        updated = result.success;
+      }
+
+      if (!updated) return;
+      await refreshDirectory();
+      if (customer) {
+        const ledgerResult = await getCustomerLedgerById(customer.id);
+        if (ledgerResult.success) setCloudLedgerEntries(ledgerResult.entries || []);
+      }
     } finally {
       setLoadingIds((current) => {
         const next = new Set(current);
@@ -297,6 +339,7 @@ export default function WorkerCustomerLedger({
             type="button"
             onClick={() => {
               setCustomer(null);
+              setCloudLedgerEntries([]);
               setError(null);
               void refreshDirectory();
             }}

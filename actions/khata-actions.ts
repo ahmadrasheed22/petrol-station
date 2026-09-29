@@ -86,6 +86,7 @@ async function buildCustomerLedger(
       receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
     `)
     .eq("customer_id", customer.id)
+    .neq("status", "SETTLED")
     .order("created_at", { ascending: false });
 
   if (ledgerError) {
@@ -411,7 +412,7 @@ export async function getWorkerPendingCollections(): Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("ledger_transactions")
-    .select("id, customer_id, customer_name, amount, created_at, status, customer:customers(name)")
+    .select("id, client_id, customer_id, customer_name, amount, created_at, status, customer:customers(name)")
     .eq("received_by_worker", auth.profile.id)
     .eq("status", "PENDING_APPROVAL")
     .order("created_at", { ascending: false });
@@ -422,7 +423,7 @@ export async function getWorkerPendingCollections(): Promise<{
     success: true,
     entries: (data || []).map((row) => ({
       id: row.id,
-      client_id: row.id,
+      client_id: row.client_id || row.id,
       customer_id: row.customer_id,
       customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
       amount: Number(row.amount) || 0,
@@ -498,6 +499,7 @@ export async function updateLedgerApproval(
     .from("ledger_transactions")
     .update({ status })
     .eq("id", trueId)
+    .eq("status", "PENDING_APPROVAL")
     .select("id")
     .maybeSingle();
 
@@ -547,6 +549,7 @@ export async function bulkApproveLedgerPayments(
     .from("ledger_transactions")
     .update({ status: "SETTLED" })
     .in("id", resolvedIds)
+    .eq("status", "PENDING_APPROVAL")
     .select("id");
 
   if (error) {
