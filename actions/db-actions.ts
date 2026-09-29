@@ -48,6 +48,7 @@ export interface ShiftPayload {
 }
 
 export interface LedgerPayload {
+  id?: string;
   customer_id?: string;
   customer_name?: string;
   phone_number?: string;

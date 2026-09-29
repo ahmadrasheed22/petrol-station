@@ -50,17 +50,22 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
   const [lastPayload, setLastPayload] = useState<RealtimePayloadInfo | null>(null);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryDelayRef = useRef(1000);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const onPayloadRef = useRef(onPayload);
   onPayloadRef.current = onPayload;
 
   const triggerRevalidation = useCallback(() => {
     if (!autoRefresh) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
     debounceTimerRef.current = setTimeout(() => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
       try {
         router.refresh();
       } catch (err) {
@@ -72,25 +77,35 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
   const tablesKey = tables.join(",");
 
   useEffect(() => {
-    const supabase = createClient();
-    const uniqueId = typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2, 9);
-    const channelName = `owner-realtime-${uniqueId}-${Date.now()}`;
-    let channel: RealtimeChannel | null = null;
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
 
-    setStatus("CONNECTING");
+    if (isOffline) {
+      setStatus("DISCONNECTED");
+      return;
+    }
 
-    try {
-      // 1. Create the channel first
-      channel = supabase.channel(channelName);
+    const connect = () => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setStatus("DISCONNECTED");
+        return;
+      }
 
-      // 2. Loop over tables and attach all postgres_changes listeners BEFORE subscribe
+      const supabase = createClient();
+      const uniqueId = typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2, 9);
+      const channelName = `owner-realtime-${uniqueId}-${Date.now()}`;
+
+      const channel = supabase.channel(channelName);
+      channelRef.current = channel;
+
+      setStatus("CONNECTING");
+
       tables.forEach((table) => {
-        channel!.on(
+        channel.on(
           "postgres_changes" as any,
           {
-            event: "*", // captures INSERT, UPDATE, DELETE
+            event: "*",
             schema: "public",
             table,
           },
@@ -114,7 +129,6 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
         );
       });
 
-      // 3. Call .subscribe() only once at the very end of setup
       channel.subscribe((subStatus) => {
         if (subStatus === "SUBSCRIBED") {
           setStatus("CONNECTED");
@@ -122,21 +136,55 @@ export function useRealtimeSync(options: UseRealtimeSyncOptions = {}) {
           setStatus("DISCONNECTED");
         } else if (subStatus === "CHANNEL_ERROR" || subStatus === "TIMED_OUT") {
           setStatus("ERROR");
+          if (typeof navigator !== "undefined" && navigator.onLine) {
+            const delay = retryDelayRef.current;
+            retryDelayRef.current = Math.min(retryDelayRef.current * 2, 5000);
+
+            if (retryTimerRef.current) {
+              clearTimeout(retryTimerRef.current);
+            }
+            retryTimerRef.current = setTimeout(() => {
+              if (typeof navigator !== "undefined" && navigator.onLine) {
+                connect();
+              }
+            }, delay);
+          }
         }
       });
-    } catch (err) {
-      console.error("Failed to establish Supabase Realtime channel:", err);
-      setStatus("ERROR");
+    };
+
+    const handleOnline = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        retryDelayRef.current = 1000;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        connect();
+      }
+    };
+
+    const supabase = createClient();
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
     }
 
-    // Cleanup: Strictly remove channel on unmount to prevent memory leaks
+    connect();
+    window.addEventListener("online", handleOnline);
+
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      if (channel) {
-        supabase.removeChannel(channel);
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
       }
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      window.removeEventListener("online", handleOnline);
     };
   }, [tablesKey, triggerRevalidation]);
 

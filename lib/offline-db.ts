@@ -1,7 +1,9 @@
 import Dexie, { type EntityTable } from "dexie";
 
 export type SyncStatus = "draft" | "pending" | "synced" | "failed";
+export type LedgerSyncStatus = "pending" | "synced";
 export type LedgerStatus = "UNPAID" | "PENDING_APPROVAL" | "SETTLED";
+export type OutboxJobType = "CREATE_ENTRY" | "MARK_RECEIVED";
 
 export interface PendingSale {
   id?: number;
@@ -52,15 +54,19 @@ export interface PendingExpense {
 
 export interface CustomerRecord {
   id: string;
+  client_id: string;
   name: string;
   phone_number: string;
   total_balance: number;
+  sync_status: LedgerSyncStatus;
   created_at?: string;
   updated_at?: string;
 }
 
 export interface PendingLedgerTransaction {
   id?: number;
+  cloud_id?: string;
+  client_id: string;
   customer_id?: string;
   customer_name: string; // Raw text customer name saved directly
   phone_number: string;
@@ -74,8 +80,16 @@ export interface PendingLedgerTransaction {
   applied_sp?: number;
   transaction_type: "credit" | "payment";
   status: LedgerStatus;
-  sync_status: SyncStatus;
+  sync_status: LedgerSyncStatus;
   created_at: string;
+}
+
+export interface LedgerOutboxJob {
+  opId: string;
+  entryId: number;
+  type: OutboxJobType;
+  payload: { client_id: string; [key: string]: unknown };
+  createdAt: string;
 }
 
 export type PendingLedger = PendingLedgerTransaction;
@@ -100,6 +114,7 @@ export class PetrolPumpDB extends Dexie {
   pendingInventory!: EntityTable<PendingInventory, "id">;
   shifts!: EntityTable<ShiftRecord, "id">;
   customers!: EntityTable<CustomerRecord, "id">;
+  outbox!: EntityTable<LedgerOutboxJob, "opId">;
 
   constructor() {
     super("PetrolPumpDB");
@@ -198,7 +213,73 @@ export class PetrolPumpDB extends Dexie {
           .modify(normalizeLedger);
         await transaction.table("pendingLedger").toCollection().modify(normalizeLedger);
       });
+
+    // Version 9: Separate synced local ledger state from unsynced work.
+    this.version(9)
+      .stores({
+        pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+        pendingExpenses: "++id, sync_status, shift_id, category, amount, description, created_at",
+        pendingLedger: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
+        pendingLedgerTransactions: "++id, sync_status, customer_id, customer_name, transaction_type, created_at",
+        shifts: "++id, shift_id, user_id, product_id, status, sync_status, created_at",
+        customers: "id, name, phone_number, total_balance, sync_status",
+        pendingInventory: "++id, sync_status, product_id, created_at",
+        outbox: "opId, entryId, type, createdAt",
+      })
+      .upgrade(async (transaction) => {
+        await transaction.table("customers").toCollection().modify((customer) => {
+          (customer as CustomerRecord).sync_status = "synced";
+        });
+        await transaction.table("pendingLedgerTransactions").toCollection().modify((entry) => {
+          (entry as PendingLedgerTransaction).sync_status = "synced";
+        });
+        await transaction.table("pendingLedger").toCollection().modify((entry) => {
+          (entry as PendingLedgerTransaction).sync_status = "synced";
+        });
+      });
+
+    // Version 10: Stable client identity for cloud idempotency.
+    this.version(10)
+      .stores({
+        pendingSales: "++id, sync_status, shift_id, product_id, created_at",
+        pendingExpenses: "++id, sync_status, shift_id, category, amount, description, created_at",
+        pendingLedger: "++id, sync_status, customer_id, client_id, customer_name, transaction_type, created_at",
+        pendingLedgerTransactions: "++id, sync_status, customer_id, client_id, customer_name, transaction_type, created_at",
+        shifts: "++id, shift_id, user_id, product_id, status, sync_status, created_at",
+        customers: "id, client_id, name, phone_number, total_balance, sync_status",
+        pendingInventory: "++id, sync_status, product_id, created_at",
+        outbox: "opId, entryId, type, createdAt",
+      })
+      .upgrade(async (transaction) => {
+        const createClientId = () => {
+          if (typeof crypto === "undefined" || !crypto.randomUUID) {
+            throw new Error("crypto.randomUUID is required to migrate local ledger identities.");
+          }
+          return crypto.randomUUID();
+        };
+
+        await transaction.table("customers").toCollection().modify((customer) => {
+          const record = customer as CustomerRecord;
+          record.client_id ??= createClientId();
+        });
+        await transaction.table("pendingLedgerTransactions").toCollection().modify((entry) => {
+          const record = entry as PendingLedgerTransaction;
+          record.client_id ??= createClientId();
+        });
+        await transaction.table("pendingLedger").toCollection().modify((entry) => {
+          const record = entry as PendingLedgerTransaction;
+          record.client_id ??= createClientId();
+        });
+      });
   }
 }
 
 export const db = new PetrolPumpDB();
+
+db.on("versionchange", () => {
+  db.close();
+  if (typeof window !== "undefined") {
+    console.warn("A newer PetrolPumpDB version is available. Reloading this tab.");
+    window.setTimeout(() => window.location.reload(), 0);
+  }
+});

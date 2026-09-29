@@ -40,7 +40,13 @@ export async function syncPendingShifts(): Promise<SyncStepResult> {
     created_at: shift.created_at,
   }));
 
-  const result = await syncShiftsToCloud(payloads);
+  let result: Awaited<ReturnType<typeof syncShiftsToCloud>>;
+  try {
+    result = await syncShiftsToCloud(payloads);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed";
+    return { syncedCount: 0, error: `Shifts sync error: ${message}` };
+  }
   if (!result.success) {
     const error = `Shifts sync error: ${result.error || "Unknown server error"}`;
     console.error("SYNC FAILED:", error);
@@ -75,7 +81,13 @@ export async function syncPendingSales(): Promise<SyncStepResult> {
     };
   });
 
-  const result = await syncTransactionsToCloud(payloads);
+  let result: Awaited<ReturnType<typeof syncTransactionsToCloud>>;
+  try {
+    result = await syncTransactionsToCloud(payloads);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed";
+    return { syncedCount: 0, error: `Sales sync error: ${message}` };
+  }
   if (!result.success) {
     const error = `Sales sync error: ${result.error || "Unknown server error"}`;
     console.error("SYNC FAILED:", error);
@@ -103,7 +115,13 @@ export async function syncPendingExpenses(): Promise<SyncStepResult> {
     created_at: expense.created_at,
   }));
 
-  const result = await syncExpensesToCloud(payloads);
+  let result: Awaited<ReturnType<typeof syncExpensesToCloud>>;
+  try {
+    result = await syncExpensesToCloud(payloads);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed";
+    return { syncedCount: 0, error: `Expenses sync error: ${message}` };
+  }
   if (!result.success) {
     const error = `Expenses sync error: ${result.error || "Unknown server error"}`;
     console.error("SYNC FAILED:", error);
@@ -126,9 +144,14 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
     .toArray();
   if (pendingLedger.length === 0) return { syncedCount: 0 };
 
-  const payloads: LedgerPayload[] = pendingLedger.map((transaction) => {
+  const payloads: LedgerPayload[] = await Promise.all(pendingLedger.map(async (transaction) => {
     const price = transaction.price_per_liter ?? transaction.applied_sp ?? 0;
+    const cloudId = transaction.cloud_id || crypto.randomUUID();
+    if (transaction.cloud_id !== cloudId && transaction.id !== undefined) {
+      await db.pendingLedgerTransactions.update(transaction.id, { cloud_id: cloudId });
+    }
     return {
+      id: cloudId,
       customer_id: transaction.customer_id,
       customer_name: transaction.customer_name,
       phone_number: transaction.phone_number,
@@ -143,9 +166,15 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
       status: transaction.status,
       created_at: transaction.created_at,
     };
-  });
+  }));
 
-  const result = await syncLedgerToCloud(payloads);
+  let result: Awaited<ReturnType<typeof syncLedgerToCloud>>;
+  try {
+    result = await syncLedgerToCloud(payloads);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed";
+    return { syncedCount: 0, error: `Ledger sync error: ${message}` };
+  }
   if (!result.success) {
     const error = `Ledger sync error: ${result.error || "Unknown server error"}`;
     console.error("SYNC FAILED:", error);
@@ -179,7 +208,13 @@ export async function syncPendingInventory(): Promise<SyncStepResult> {
     created_at: item.created_at,
   }));
 
-  const result = await syncInventoryToCloud(payloads);
+  let result: Awaited<ReturnType<typeof syncInventoryToCloud>>;
+  try {
+    result = await syncInventoryToCloud(payloads);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network request failed";
+    return { syncedCount: 0, error: `Inventory sync error: ${message}` };
+  }
   if (!result.success) {
     const error = `Inventory sync error: ${result.error || "Unknown server error"}`;
     console.error("SYNC FAILED:", error);

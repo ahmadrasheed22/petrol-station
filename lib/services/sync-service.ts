@@ -87,6 +87,21 @@ export function triggerAutoSyncIfOnline(): void {
  * the server action returns success: true.
  */
 export async function processOfflineQueue(): Promise<ProcessQueueResult> {
+  if (
+    typeof navigator !== "undefined" &&
+    !navigator.onLine
+  ) {
+    return {
+      success: true,
+      syncedShiftsCount: 0,
+      syncedSalesCount: 0,
+      syncedExpensesCount: 0,
+      syncedLedgerCount: 0,
+      syncedInventoryCount: 0,
+      pendingRemainingCount: await getPendingCount(),
+    };
+  }
+
   if (isSyncing) {
     pendingSyncRequest = true;
     return {

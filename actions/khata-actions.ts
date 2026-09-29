@@ -269,8 +269,8 @@ export async function markLedgerPaymentReceived(
       received_at: new Date().toISOString(),
     })
     .eq("id", transactionId)
-    .eq("status", "UNPAID")
-    .select("id, received_at")
+    .in("status", ["UNPAID", "PENDING_APPROVAL"])
+    .select("id, received_at, status")
     .maybeSingle();
 
   if (error) return { success: false, error: error.message };
