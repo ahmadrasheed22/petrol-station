@@ -18,21 +18,28 @@ function formatDate(value: string): string {
 export default function KhataApprovalQueue({ entries }: { entries: PendingApprovalEntry[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string[]>([]);
-  const [workingId, setWorkingId] = useState<string | null>(null);
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function runAction(action: () => Promise<{ success: boolean; error?: string }>, id: string | null) {
+  function runAction(action: () => Promise<{ success: boolean; error?: string }>, ids: string[]) {
     setError(null);
-    setWorkingId(id);
+    setLoadingIds((current) => new Set([...current, ...ids]));
     startTransition(async () => {
-      const result = await action();
-      if (!result.success) setError(result.error || "Unable to update payment.");
-      else {
-        setSelected([]);
-        router.refresh();
+      try {
+        const result = await action();
+        if (!result.success) setError(result.error || "Unable to update payment.");
+        else {
+          setSelected([]);
+          router.refresh();
+        }
+      } finally {
+        setLoadingIds((current) => {
+          const next = new Set(current);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        });
       }
-      setWorkingId(null);
     });
   }
 
@@ -59,7 +66,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
         <button
           type="button"
           disabled={selected.length === 0 || isPending}
-          onClick={() => runAction(() => bulkApproveLedgerPayments(selected), "bulk")}
+          onClick={() => runAction(() => bulkApproveLedgerPayments(selected), selected)}
           className="inline-flex items-center justify-center rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Approve Selected ({selected.length})
@@ -87,16 +94,16 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
             </thead>
             <tbody className="divide-y divide-zinc-800/70">
               {entries.map((entry) => (
-                <tr key={entry.id} className="hover:bg-zinc-800/30">
-                  <td className="px-4 py-4"><input aria-label={`Select ${entry.customer_name}`} type="checkbox" checked={selected.includes(entry.id)} onChange={() => toggleSelected(entry.id)} /></td>
+                <tr key={entry.id} className={`transition-opacity hover:bg-zinc-800/30 ${loadingIds.has(entry.id) ? "opacity-40" : ""}`}>
+                  <td className="px-4 py-4"><input aria-label={`Select ${entry.customer_name}`} type="checkbox" checked={selected.includes(entry.id)} disabled={loadingIds.has(entry.id)} onChange={() => toggleSelected(entry.id)} /></td>
                   <td className="px-4 py-4 font-semibold text-white">{entry.customer_name}</td>
                   <td className="px-4 py-4 font-bold text-emerald-400">Rs. {entry.amount.toLocaleString()}</td>
-                  <td className="px-4 py-4 whitespace-nowrap text-zinc-400">{formatDate(entry.created_at)}</td>
+                  <td suppressHydrationWarning className="px-4 py-4 whitespace-nowrap text-zinc-400">{formatDate(entry.created_at)}</td>
                   <td className="px-4 py-4 text-zinc-300">{entry.issued_by_worker_name}</td>
                   <td className="px-4 py-4 font-semibold text-amber-300">{entry.received_by_worker_name}</td>
                   <td className="px-4 py-4"><div className="flex justify-end gap-2">
-                    <button type="button" disabled={isPending} onClick={() => runAction(() => updateLedgerApproval(entry.id, "SETTLED"), entry.id)} className="rounded-lg bg-emerald-500 px-3 py-2 text-[11px] font-bold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40">Approve</button>
-                    <button type="button" disabled={isPending} onClick={() => runAction(() => updateLedgerApproval(entry.id, "UNPAID"), entry.id)} className="rounded-lg border border-zinc-700 px-3 py-2 text-[11px] font-bold text-zinc-300 hover:border-red-400 hover:text-red-300 disabled:opacity-40">Reject / Revert</button>
+                    <button type="button" disabled={loadingIds.has(entry.id)} onClick={() => runAction(() => updateLedgerApproval(entry.id, "SETTLED"), [entry.id])} className="rounded-lg bg-emerald-500 px-3 py-2 text-[11px] font-bold text-zinc-950 hover:bg-emerald-400 disabled:opacity-40">Approve</button>
+                    <button type="button" disabled={loadingIds.has(entry.id)} onClick={() => runAction(() => updateLedgerApproval(entry.id, "UNPAID"), [entry.id])} className="rounded-lg border border-zinc-700 px-3 py-2 text-[11px] font-bold text-zinc-300 hover:border-red-400 hover:text-red-300 disabled:opacity-40">Reject / Revert</button>
                   </div></td>
                 </tr>
               ))}
@@ -104,7 +111,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
           </table>
         </div>
       )}
-      {workingId && <p className="mt-3 text-right text-[11px] text-zinc-500">Updating payment...</p>}
+      {loadingIds.size > 0 && <p className="mt-3 text-right text-[11px] text-zinc-500">Updating payment...</p>}
     </section>
   );
 }
