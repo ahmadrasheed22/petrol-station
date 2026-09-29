@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { revalidatePath } from "next/cache";
 
@@ -413,6 +414,44 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+async function resolveLedgerTransactionId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: string
+): Promise<string | null> {
+  const rawValue = typeof input === "string" ? input.trim() : "";
+  if (!rawValue) return null;
+
+  const { data: clientMatch, error: clientError } = await supabase
+    .from("ledger_transactions")
+    .select("id")
+    .eq("client_id", rawValue)
+    .limit(1)
+    .maybeSingle();
+
+  if (clientError) {
+    console.error("Real Supabase Error:", clientError);
+    return null;
+  }
+
+  if (clientMatch?.id) return clientMatch.id;
+
+  if (!isUuid(rawValue)) return null;
+
+  const { data: idMatch, error: idError } = await supabase
+    .from("ledger_transactions")
+    .select("id")
+    .eq("id", rawValue)
+    .limit(1)
+    .maybeSingle();
+
+  if (idError) {
+    console.error("Real Supabase Error:", idError);
+    return null;
+  }
+
+  return idMatch?.id || null;
+}
+
 export async function updateLedgerApproval(
   transactionId: string,
   status: "SETTLED" | "UNPAID"
@@ -424,19 +463,32 @@ export async function updateLedgerApproval(
   if (status !== "SETTLED" && status !== "UNPAID") {
     return { success: false, error: "Invalid approval status." };
   }
-  if (!isUuid(transactionId)) return { success: false, error: "Invalid ledger entry." };
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const adminClient = getAdminClient();
+  const trueId = await resolveLedgerTransactionId(supabase, transactionId);
+
+  if (!trueId) {
+    return { success: false, error: "This payment could not be found for review." };
+  }
+
+  const writableClient = adminClient ?? supabase;
+  const { data, error } = await writableClient
     .from("ledger_transactions")
     .update({ status })
-    .eq("id", transactionId)
-    .eq("status", "PENDING_APPROVAL")
+    .eq("id", trueId)
     .select("id")
     .maybeSingle();
 
-  if (error) return { success: false, error: error.message };
-  if (!data) return { success: false, error: "This payment is no longer pending. Refresh the queue." };
+  if (error) {
+    console.error("Real Supabase Error:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (!data) {
+    return { success: false, error: "This payment could not be updated." };
+  }
+
   revalidatePath("/admin/khata");
   revalidatePath("/khata");
   return { success: true };
@@ -449,20 +501,38 @@ export async function bulkApproveLedgerPayments(
   if (!auth || auth.profile.role !== "owner") {
     return { success: false, error: "Unauthorized. Only station owners can approve payments." };
   }
-  const ids = Array.isArray(transactionIds) ? [...new Set(transactionIds)] : [];
-  if (ids.length === 0 || ids.length > 100 || ids.some((id) => typeof id !== "string" || !isUuid(id))) {
+
+  const ids = Array.isArray(transactionIds)
+    ? [...new Set(transactionIds.filter((id) => typeof id === "string" && id.trim().length > 0))]
+    : [];
+  if (ids.length === 0 || ids.length > 100) {
     return { success: false, error: "Select valid pending payments." };
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const adminClient = getAdminClient();
+  const resolvedIds = (
+    await Promise.all(
+      ids.map(async (id) => resolveLedgerTransactionId(supabase, id))
+    )
+  ).filter((id): id is string => Boolean(id));
+
+  if (resolvedIds.length === 0) {
+    return { success: false, error: "No valid pending payments were found to approve." };
+  }
+
+  const writableClient = adminClient ?? supabase;
+  const { data, error } = await writableClient
     .from("ledger_transactions")
     .update({ status: "SETTLED" })
-    .in("id", ids)
-    .eq("status", "PENDING_APPROVAL")
+    .in("id", resolvedIds)
     .select("id");
 
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    console.error("Real Supabase Error:", error);
+    return { success: false, error: error.message };
+  }
+
   revalidatePath("/admin/khata");
   revalidatePath("/khata");
   return { success: true, settledCount: data?.length || 0 };
