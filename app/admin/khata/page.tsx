@@ -39,7 +39,7 @@ export default async function AdminKhataPage() {
         </div>
         <div className="mt-5 overflow-x-auto rounded-xl border border-zinc-800">
           <table className="w-full min-w-[620px] text-left text-xs text-zinc-300">
-            <thead className="border-b border-zinc-800 bg-zinc-950/70 text-zinc-400"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Phone Number</th><th className="px-4 py-3">Latest Transaction</th><th className="px-4 py-3 text-right">Outstanding Balance</th></tr></thead>
+            <thead className="border-b border-zinc-800 bg-zinc-950/70 text-zinc-400"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Phone Number</th><th className="px-4 py-3">Liters</th><th className="px-4 py-3">Latest Transaction</th><th className="px-4 py-3 text-right">Outstanding Balance</th></tr></thead>
             <tbody className="divide-y divide-zinc-800/70">
               {overview.customers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-zinc-800/30">
@@ -54,6 +54,7 @@ export default async function AdminKhataPage() {
                     </span>
                   </td>
                   <td className="px-4 py-4 font-mono text-zinc-400">{customer.phone_number || "Not provided"}</td>
+                  <td className="px-4 py-4 font-semibold text-zinc-200">{customer.liters.toLocaleString()} L</td>
                   <td className="px-4 py-4 text-zinc-400">{formatDate(customer.latest_transaction_at)}</td>
                   <td className={`px-4 py-4 text-right font-bold ${customer.total_balance > 0 ? "text-amber-300" : "text-emerald-400"}`}>Rs. {customer.total_balance.toLocaleString()}</td>
                 </tr>

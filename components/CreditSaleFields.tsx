@@ -66,6 +66,7 @@ export default function CreditSaleFields({
           id="customer_name"
           name="customer_name"
           type="text"
+          autoComplete="off"
           value={customerName}
           onChange={(event) => onCustomerNameChange(event.target.value)}
           placeholder="e.g. Malik Transport, Aslam Rickshaw, Ch Tariq..."
@@ -85,7 +86,7 @@ export default function CreditSaleFields({
           id={phoneInputId}
           name="phone_number"
           type="tel"
-          autoComplete="tel"
+          autoComplete="off"
           value={phoneNumber}
           onChange={(event) => onPhoneNumberChange(event.target.value)}
           placeholder="e.g. 03XX XXXXXXX"
