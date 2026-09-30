@@ -156,6 +156,7 @@ export async function addPendingLedgerTx(txData: {
   issued_by_worker_name?: string;
   received_by_worker?: string;
   received_by_worker_name?: string;
+  fuel_product?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number;
@@ -212,6 +213,7 @@ export async function addPendingLedgerTx(txData: {
     received_by_worker:
       txData.received_by_worker ?? txData.worker_id ?? (txType === "payment" ? txData.worker_id : undefined),
     received_by_worker_name: txData.received_by_worker_name,
+    fuel_product: txData.fuel_product,
     liters: txData.liters,
     amount: txData.amount,
     price_per_liter: price,

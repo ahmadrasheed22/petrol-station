@@ -75,6 +75,7 @@ export interface PendingLedgerTransaction {
   issued_by_worker_name?: string;
   received_by_worker?: string;
   received_by_worker_name?: string;
+  fuel_product?: string;
   received_at?: string;
   updated_at?: string;
   liters?: number;

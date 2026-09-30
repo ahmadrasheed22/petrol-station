@@ -197,6 +197,8 @@ export default function WorkerCustomerLedger({
         name: group.name,
         phone_number: group.phoneNumber,
         liters: latestLocalTransactionEntry?.liters || 0,
+        latest_fuel_product: latestLocalTransactionEntry?.fuel_product || null,
+        latest_price_per_liter: latestLocalTransactionEntry?.price_per_liter || latestLocalTransactionEntry?.applied_sp || 0,
         total_balance: totalBalance,
         has_pending_approval: group.transactions.some((transaction) => transaction.status === "PENDING_APPROVAL"),
         latest_transaction_at: latestLocalTransaction,
@@ -212,6 +214,8 @@ export default function WorkerCustomerLedger({
     return {
       id: `offline:${transaction.id}`,
       customer_name: transaction.customer_name,
+      fuel_product: transaction.fuel_product || null,
+      price_per_liter: transaction.price_per_liter || transaction.applied_sp || 0,
       liters: transaction.liters || 0,
       amount: transaction.amount,
       applied_sp: transaction.applied_sp || transaction.price_per_liter || 0,
@@ -402,6 +406,9 @@ export default function WorkerCustomerLedger({
                           {entry.liters > 0 && (
                             <p className="mt-1 text-xs text-zinc-500">{entry.liters.toLocaleString()} L</p>
                           )}
+                          <p className="mt-1 text-xs text-zinc-400">
+                            {entry.fuel_product?.trim() || "Product unavailable"} · Rs. {entry.price_per_liter.toLocaleString(undefined, { maximumFractionDigits: 2 })}/L
+                          </p>
                           <p className="mt-1 text-xs text-zinc-400">
                             Issued by: <span className="text-zinc-300">{entry.issued_by_worker_name || "Unknown Worker"}</span>
                           </p>

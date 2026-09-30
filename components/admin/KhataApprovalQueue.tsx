@@ -87,7 +87,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
         <div className="py-10 text-center text-sm text-zinc-500">No payments are waiting for approval.</div>
       ) : (
         <div className="mt-5 overflow-x-auto rounded-xl border border-zinc-800">
-          <table className="w-full min-w-[860px] text-left text-xs text-zinc-300">
+          <table className="w-full min-w-[1040px] text-left text-xs text-zinc-300">
             <thead className="border-b border-zinc-800 bg-zinc-950/70 text-zinc-400">
               <tr>
                 <th className="w-10 px-4 py-3">
@@ -96,6 +96,8 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Amount Received</th>
                 <th className="px-4 py-3">Liters</th>
+                <th className="px-4 py-3">Fuel Product</th>
+                <th className="px-4 py-3">Price/L</th>
                 <th className="px-4 py-3">Date / Time</th>
                 <th className="px-4 py-3">Issued By</th>
                 <th className="px-4 py-3">Received By</th>
@@ -109,6 +111,8 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
                   <td className="px-4 py-4 font-semibold text-white">{entry.customer_name}</td>
                   <td className="px-4 py-4 font-bold text-emerald-400">Rs. {entry.amount.toLocaleString()}</td>
                   <td className="px-4 py-4 font-semibold text-zinc-200">{entry.liters.toLocaleString()} L</td>
+                  <td className="px-4 py-4 font-semibold text-zinc-200">{entry.fuel_product || "Fuel"}</td>
+                  <td className="px-4 py-4 whitespace-nowrap text-zinc-300">Rs. {entry.price_per_liter.toLocaleString(undefined, { maximumFractionDigits: 2 })}/L</td>
                   <td suppressHydrationWarning className="px-4 py-4 whitespace-nowrap text-zinc-400">{formatDate(entry.created_at)}</td>
                   <td className="px-4 py-4 text-zinc-300">{entry.issued_by_worker_name}</td>
                   <td className="px-4 py-4 font-semibold text-amber-300">{entry.received_by_worker_name}</td>

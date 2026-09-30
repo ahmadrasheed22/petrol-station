@@ -57,6 +57,7 @@ export interface LedgerPayload {
   issued_by_worker_name?: string;
   received_by_worker?: string;
   received_by_worker_name?: string;
+  fuel_product?: string;
   liters?: number;
   amount: number;
   price_per_liter?: number;
