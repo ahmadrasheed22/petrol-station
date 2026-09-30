@@ -224,10 +224,6 @@ export async function addPendingLedgerTx(txData: {
   } as const;
 
   const id = await db.pendingLedgerTransactions.add({
-    cloud_id:
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : undefined,
     ...entryPayload,
     sync_status: "pending",
   });

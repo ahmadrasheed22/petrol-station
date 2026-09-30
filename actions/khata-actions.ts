@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 
 export interface CustomerLedgerEntry {
   id: string;
+  cloud_id?: string;
   customer_name: string | null;
   fuel_product: string | null;
   price_per_liter: number;

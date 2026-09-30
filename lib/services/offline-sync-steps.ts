@@ -147,9 +147,6 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
   const payloads: LedgerPayload[] = await Promise.all(pendingLedger.map(async (transaction) => {
     const price = transaction.price_per_liter ?? transaction.applied_sp ?? 0;
     const cloudId = transaction.cloud_id || crypto.randomUUID();
-    if (transaction.cloud_id !== cloudId && transaction.id !== undefined) {
-      await db.pendingLedgerTransactions.update(transaction.id, { cloud_id: cloudId });
-    }
     return {
       id: cloudId,
       customer_id: transaction.customer_id,
@@ -183,15 +180,16 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
     return { syncedCount: 0, error };
   }
 
-  const ledgerIds = pendingLedger
-    .map((transaction) => transaction.id)
-    .filter((id): id is number => id !== undefined);
-  if (ledgerIds.length > 0) {
-    await db.pendingLedgerTransactions
-      .where("id")
-      .anyOf(ledgerIds)
-      .modify({ sync_status: "synced" });
-  }
+  await db.transaction("rw", db.pendingLedgerTransactions, async () => {
+    for (let index = 0; index < pendingLedger.length; index += 1) {
+      const transaction = pendingLedger[index];
+      if (transaction.id === undefined) continue;
+      await db.pendingLedgerTransactions.update(transaction.id, {
+        cloud_id: payloads[index].id,
+        sync_status: "synced",
+      });
+    }
+  });
   return { syncedCount: result.insertedCount ?? pendingLedger.length };
 }
 

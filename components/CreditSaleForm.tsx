@@ -17,8 +17,10 @@ const DEFAULT_PRODUCTS: Product[] = [
 
 export default function CreditSaleForm({
   onSaleRecorded,
+  workerName,
 }: {
   onSaleRecorded?: () => void;
+  workerName?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -140,6 +142,7 @@ export default function CreditSaleForm({
         phone_number: targetPhoneNumber,
         worker_id: activeShift?.user_id,
         issued_by_worker: activeShift?.user_id,
+        issued_by_worker_name: activeShift?.worker_name || workerName,
         fuel_product: productName,
         liters,
         amount: finalAmount,

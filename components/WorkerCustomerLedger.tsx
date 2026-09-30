@@ -213,6 +213,7 @@ export default function WorkerCustomerLedger({
   function toLocalLedgerEntry(transaction: PendingLedgerTransaction): CustomerLedgerEntry {
     return {
       id: `offline:${transaction.id}`,
+      cloud_id: transaction.cloud_id,
       customer_name: transaction.customer_name,
       fuel_product: transaction.fuel_product || null,
       price_per_liter: transaction.price_per_liter || transaction.applied_sp || 0,
@@ -421,14 +422,20 @@ export default function WorkerCustomerLedger({
                         <div className="flex items-center justify-between gap-4 sm:justify-end">
                           <span className="whitespace-nowrap text-sm font-semibold text-zinc-200">Rs. {entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           {entry.status === "UNPAID" && (
-                            <button
-                              type="button"
-                              onClick={() => markReceived(entry.id)}
-                              disabled={loadingIds.has(entry.id)}
-                              className="whitespace-nowrap rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-200 transition-colors hover:bg-amber-400/20 disabled:cursor-wait disabled:opacity-60"
-                            >
-                              {loadingIds.has(entry.id) ? "Updating..." : "Received by Worker"}
-                            </button>
+                            entry.cloud_id ? (
+                              <button
+                                type="button"
+                                onClick={() => markReceived(entry.id)}
+                                disabled={loadingIds.has(entry.id)}
+                                className="whitespace-nowrap rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-200 transition-colors hover:bg-amber-400/20 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {loadingIds.has(entry.id) ? "Updating..." : "Received by Worker"}
+                              </button>
+                            ) : (
+                              <span className="whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-xs font-bold text-zinc-400">
+                                Syncing...
+                              </span>
+                            )
                           )}
                         </div>
                       </li>
