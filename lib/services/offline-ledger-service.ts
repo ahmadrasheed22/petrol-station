@@ -87,6 +87,7 @@ export async function reconcileOfflineCustomersWithCloud(
   const transactionIdsToDelete = settledTransactions.map((transaction) => transaction.id as number);
   const rejectedTransactions = localTransactions.filter((transaction) =>
     transaction.id !== undefined &&
+    transaction.sync_status === "synced" &&
     ((transaction.cloud_id ? unpaidCloudIds.has(transaction.cloud_id) : false) ||
       unpaidCloudClientIds.has(transaction.client_id)) &&
     transaction.status === "PENDING_APPROVAL"
@@ -129,6 +130,8 @@ export async function reconcileOfflineCustomersWithCloud(
         entry.client_id === transaction.client_id
       );
       if (!cloudEntry) continue;
+      // A local write remains authoritative until its outbox operation is synced.
+      if (transaction.sync_status !== "synced") continue;
       await db.pendingLedgerTransactions.update(transaction.id, {
         cloud_id: cloudEntry.id,
         status: cloudEntry.status,
@@ -305,6 +308,42 @@ export async function markReceivedLocally(entryId: number): Promise<boolean> {
 
   if (updated) triggerAutoSyncIfOnline();
   return updated;
+}
+
+export async function purgeSettledLedgerTransaction(
+  cloudId?: string,
+  clientId?: string
+): Promise<boolean> {
+  const matches = await db.pendingLedgerTransactions
+    .filter((transaction) => Boolean(
+      (cloudId && transaction.cloud_id === cloudId) ||
+      (clientId && transaction.client_id === clientId)
+    ))
+    .toArray();
+
+  if (matches.length === 0) return false;
+
+  await db.transaction("rw", db.pendingLedgerTransactions, db.customers, db.outbox, async () => {
+    for (const transaction of matches) {
+      if (transaction.id === undefined) continue;
+      if (transaction.customer_id) {
+        const customer = await db.customers.get(transaction.customer_id);
+        if (customer) {
+          const balanceDelta = transaction.transaction_type === "credit"
+            ? -transaction.amount
+            : transaction.amount;
+          await db.customers.update(transaction.customer_id, {
+            total_balance: (customer.total_balance || 0) + balanceDelta,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
+      await db.pendingLedgerTransactions.delete(transaction.id);
+      await db.outbox.where("entryId").equals(transaction.id).delete();
+    }
+  });
+
+  return true;
 }
 
 export async function deletePendingLedgerTx(id: number): Promise<void> {
