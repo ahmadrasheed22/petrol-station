@@ -179,6 +179,7 @@ export async function syncLedgerToCloudService(
             : entry.transaction_type === "payment" && entry.worker_id && validWorkerIds.has(entry.worker_id)
               ? entry.worker_id
               : null,
+              fuel_product: entry.fuel_product || null,
         liters: entry.liters ?? 0,
         amount: entry.amount ?? 0,
         price_per_liter: price,

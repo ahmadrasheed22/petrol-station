@@ -158,6 +158,7 @@ export async function syncPendingLedger(): Promise<SyncStepResult> {
       worker_id: transaction.worker_id,
       issued_by_worker: transaction.issued_by_worker,
       received_by_worker: transaction.received_by_worker,
+      fuel_product: transaction.fuel_product,
       liters: transaction.liters,
       amount: transaction.amount,
       price_per_liter: price,

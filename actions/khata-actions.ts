@@ -8,6 +8,8 @@ import { revalidatePath } from "next/cache";
 export interface CustomerLedgerEntry {
   id: string;
   customer_name: string | null;
+  fuel_product: string | null;
+  price_per_liter: number;
   liters: number;
   amount: number;
   applied_sp: number;
@@ -39,6 +41,8 @@ export interface CustomerDirectoryEntry {
   name: string;
   phone_number: string;
   liters: number;
+  latest_fuel_product: string | null;
+  latest_price_per_liter: number;
   total_balance: number;
   latest_transaction_at: string;
   has_pending_approval: boolean;
@@ -54,7 +58,10 @@ export interface CloudLedgerSyncEntry {
   received_by_worker_name: string | null;
 }
 
-type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval" | "liters">;
+type CustomerSummary = Omit<
+  CustomerDirectoryEntry,
+  "latest_transaction_at" | "has_pending_approval" | "liters" | "latest_fuel_product" | "latest_price_per_liter"
+>;
 
 function calculateOutstandingBalance(
   entries: Array<{ amount: unknown; transaction_type: unknown; status: unknown }>
@@ -87,6 +94,7 @@ async function buildCustomerLedger(
     .from("ledger_transactions")
     .select(`
       id, customer_name, liters, amount, applied_sp, transaction_type, status, created_at, received_at,
+      fuel_product, price_per_liter,
       issued_by_worker, received_by_worker,
       issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
       receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
@@ -102,6 +110,8 @@ async function buildCustomerLedger(
   const entries: CustomerLedgerEntry[] = (ledgerRows || []).map((row) => ({
     id: row.id,
     customer_name: row.customer_name,
+    fuel_product: row.fuel_product || null,
+    price_per_liter: Number(row.price_per_liter) || Number(row.applied_sp) || 0,
     liters: Number(row.liters) || 0,
     amount: Number(row.amount) || 0,
     applied_sp: Number(row.applied_sp) || 0,
@@ -149,7 +159,7 @@ export async function getCustomerDirectory(): Promise<{
     .select(`
       id, name, phone_number,
       ledger_transactions(
-        id, client_id, customer_id, amount, liters, transaction_type, status, created_at, received_at,
+        id, client_id, customer_id, amount, liters, fuel_product, price_per_liter, applied_sp, transaction_type, status, created_at, received_at,
         issued_by_worker, received_by_worker,
         issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
         receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
@@ -190,6 +200,8 @@ export async function getCustomerDirectory(): Promise<{
         name: customer.name,
         phone_number: customer.phone_number || "",
         liters: Number(ledgerEntries[0]?.liters) || 0,
+        latest_fuel_product: ledgerEntries[0]?.fuel_product || null,
+        latest_price_per_liter: Number(ledgerEntries[0]?.price_per_liter) || Number(ledgerEntries[0]?.applied_sp) || 0,
         total_balance: totalBalance,
         has_pending_approval: hasPendingApproval,
         latest_transaction_at: ledgerEntries[0]?.created_at || "",
@@ -337,6 +349,8 @@ export async function markLedgerPaymentReceived(
 export interface PendingApprovalEntry {
   id: string;
   customer_name: string;
+  fuel_product: string | null;
+  price_per_liter: number;
   liters: number;
   amount: number;
   created_at: string;
@@ -374,12 +388,12 @@ export async function getAdminKhataOverview(): Promise<{
     await Promise.all([
       supabase
         .from("customers")
-        .select("id, name, phone_number, ledger_transactions(amount, liters, transaction_type, status, created_at)")
+        .select("id, name, phone_number, ledger_transactions(amount, liters, fuel_product, price_per_liter, applied_sp, transaction_type, status, created_at)")
         .order("created_at", { referencedTable: "ledger_transactions", ascending: false }),
       supabase
         .from("ledger_transactions")
         .select(`
-          id, customer_id, customer_name, amount, liters, created_at, status,
+          id, customer_id, customer_name, amount, liters, fuel_product, price_per_liter, created_at, status,
           customer:customers(name),
           issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
           receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
@@ -399,6 +413,8 @@ export async function getAdminKhataOverview(): Promise<{
       name: customer.name,
       phone_number: customer.phone_number || "",
       liters: Number(ledgerEntries[0]?.liters) || 0,
+      latest_fuel_product: ledgerEntries[0]?.fuel_product || null,
+      latest_price_per_liter: Number(ledgerEntries[0]?.price_per_liter) || Number(ledgerEntries[0]?.applied_sp) || 0,
       total_balance: calculateOutstandingBalance(ledgerEntries),
       has_pending_approval: ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL"),
       latest_transaction_at: ledgerEntries[0]?.created_at || "",
@@ -418,6 +434,8 @@ export async function getAdminKhataOverview(): Promise<{
       pending_approvals: (pendingRows || []).map((row) => ({
         id: row.id,
         customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
+        fuel_product: row.fuel_product || null,
+        price_per_liter: Number(row.price_per_liter) || 0,
         liters: Number(row.liters) || 0,
         amount: Number(row.amount) || 0,
         created_at: row.created_at,

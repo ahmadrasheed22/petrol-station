@@ -133,13 +133,14 @@ export default function CreditSaleForm({
     setIsSubmitting(true);
     try {
       const product = products.find((p) => p.id === selectedProductId);
-      const productName = product ? product.name : "Fuel";
+      const productName = product?.name || DEFAULT_PRODUCTS.find((item) => item.id === selectedProductId)?.name || "Product unavailable";
 
       await addPendingLedgerTx({
         customer_name: targetCustomerName,
         phone_number: targetPhoneNumber,
         worker_id: activeShift?.user_id,
         issued_by_worker: activeShift?.user_id,
+        fuel_product: productName,
         liters,
         amount: finalAmount,
         price_per_liter: pricePerLiter,
