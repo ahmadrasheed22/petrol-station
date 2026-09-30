@@ -164,6 +164,10 @@ export default function WorkerCustomerLedger({
         (latest, transaction) => transaction.created_at > latest ? transaction.created_at : latest,
         ""
       );
+      const latestLocalTransactionEntry = group.transactions.reduce(
+        (latest, transaction) => transaction.created_at > latest.created_at ? transaction : latest,
+        group.transactions[0]
+      );
 
       if (existing && cloudKey) {
         const pendingDelta = group.transactions.reduce((total, transaction) => {
@@ -192,6 +196,7 @@ export default function WorkerCustomerLedger({
         id: group.transactions[0].customer_id || `offline:${key}`,
         name: group.name,
         phone_number: group.phoneNumber,
+        liters: latestLocalTransactionEntry?.liters || 0,
         total_balance: totalBalance,
         has_pending_approval: group.transactions.some((transaction) => transaction.status === "PENDING_APPROVAL"),
         latest_transaction_at: latestLocalTransaction,

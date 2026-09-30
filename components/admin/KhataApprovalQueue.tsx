@@ -95,6 +95,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
                 </th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Amount Received</th>
+                <th className="px-4 py-3">Liters</th>
                 <th className="px-4 py-3">Date / Time</th>
                 <th className="px-4 py-3">Issued By</th>
                 <th className="px-4 py-3">Received By</th>
@@ -107,6 +108,7 @@ export default function KhataApprovalQueue({ entries }: { entries: PendingApprov
                   <td className="px-4 py-4"><input aria-label={`Select ${entry.customer_name}`} type="checkbox" checked={selected.includes(entry.id)} disabled={loadingIds.has(entry.id)} onChange={() => toggleSelected(entry.id)} /></td>
                   <td className="px-4 py-4 font-semibold text-white">{entry.customer_name}</td>
                   <td className="px-4 py-4 font-bold text-emerald-400">Rs. {entry.amount.toLocaleString()}</td>
+                  <td className="px-4 py-4 font-semibold text-zinc-200">{entry.liters.toLocaleString()} L</td>
                   <td suppressHydrationWarning className="px-4 py-4 whitespace-nowrap text-zinc-400">{formatDate(entry.created_at)}</td>
                   <td className="px-4 py-4 text-zinc-300">{entry.issued_by_worker_name}</td>
                   <td className="px-4 py-4 font-semibold text-amber-300">{entry.received_by_worker_name}</td>

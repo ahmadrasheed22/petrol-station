@@ -38,6 +38,7 @@ export interface CustomerDirectoryEntry {
   id: string;
   name: string;
   phone_number: string;
+  liters: number;
   total_balance: number;
   latest_transaction_at: string;
   has_pending_approval: boolean;
@@ -53,7 +54,7 @@ export interface CloudLedgerSyncEntry {
   received_by_worker_name: string | null;
 }
 
-type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval">;
+type CustomerSummary = Omit<CustomerDirectoryEntry, "latest_transaction_at" | "has_pending_approval" | "liters">;
 
 function calculateOutstandingBalance(
   entries: Array<{ amount: unknown; transaction_type: unknown; status: unknown }>
@@ -148,7 +149,7 @@ export async function getCustomerDirectory(): Promise<{
     .select(`
       id, name, phone_number,
       ledger_transactions(
-        id, client_id, customer_id, amount, transaction_type, status, created_at, received_at,
+        id, client_id, customer_id, amount, liters, transaction_type, status, created_at, received_at,
         issued_by_worker, received_by_worker,
         issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
         receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
@@ -188,6 +189,7 @@ export async function getCustomerDirectory(): Promise<{
         id: customer.id,
         name: customer.name,
         phone_number: customer.phone_number || "",
+        liters: Number(ledgerEntries[0]?.liters) || 0,
         total_balance: totalBalance,
         has_pending_approval: hasPendingApproval,
         latest_transaction_at: ledgerEntries[0]?.created_at || "",
@@ -335,6 +337,7 @@ export async function markLedgerPaymentReceived(
 export interface PendingApprovalEntry {
   id: string;
   customer_name: string;
+  liters: number;
   amount: number;
   created_at: string;
   issued_by_worker_name: string;
@@ -371,12 +374,12 @@ export async function getAdminKhataOverview(): Promise<{
     await Promise.all([
       supabase
         .from("customers")
-        .select("id, name, phone_number, ledger_transactions(amount, transaction_type, status, created_at)")
+        .select("id, name, phone_number, ledger_transactions(amount, liters, transaction_type, status, created_at)")
         .order("created_at", { referencedTable: "ledger_transactions", ascending: false }),
       supabase
         .from("ledger_transactions")
         .select(`
-          id, customer_id, customer_name, amount, created_at, status,
+          id, customer_id, customer_name, amount, liters, created_at, status,
           customer:customers(name),
           issuer:profiles!ledger_transactions_issued_by_worker_fkey(name),
           receiver:profiles!ledger_transactions_received_by_worker_fkey(name)
@@ -395,6 +398,7 @@ export async function getAdminKhataOverview(): Promise<{
       id: customer.id,
       name: customer.name,
       phone_number: customer.phone_number || "",
+      liters: Number(ledgerEntries[0]?.liters) || 0,
       total_balance: calculateOutstandingBalance(ledgerEntries),
       has_pending_approval: ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL"),
       latest_transaction_at: ledgerEntries[0]?.created_at || "",
@@ -414,6 +418,7 @@ export async function getAdminKhataOverview(): Promise<{
       pending_approvals: (pendingRows || []).map((row) => ({
         id: row.id,
         customer_name: getJoinedProfileName(row.customer) || row.customer_name || "Unknown Customer",
+        liters: Number(row.liters) || 0,
         amount: Number(row.amount) || 0,
         created_at: row.created_at,
         issued_by_worker_name: getJoinedProfileName(row.issuer) || "Unknown Worker",
