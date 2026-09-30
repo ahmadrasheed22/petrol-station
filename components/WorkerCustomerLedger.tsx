@@ -26,8 +26,10 @@ function getCustomerKey(name: string, phoneNumber: string): string {
 
 export default function WorkerCustomerLedger({
   refreshKey = 0,
+  workerName,
 }: {
   refreshKey?: number;
+  workerName: string;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [customers, setCustomers] = useState<CustomerDirectoryEntry[]>([]);
@@ -278,7 +280,7 @@ export default function WorkerCustomerLedger({
     try {
       let updated = false;
       const localId = Number(entryId.replace(/^offline:/, ""));
-      updated = Number.isInteger(localId) && await markReceivedLocally(localId);
+      updated = Number.isInteger(localId) && await markReceivedLocally(localId, workerName);
 
       if (!updated) return;
       void refreshDirectory();
@@ -429,7 +431,7 @@ export default function WorkerCustomerLedger({
                                 disabled={loadingIds.has(entry.id)}
                                 className="whitespace-nowrap rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-200 transition-colors hover:bg-amber-400/20 disabled:cursor-wait disabled:opacity-60"
                               >
-                                {loadingIds.has(entry.id) ? "Updating..." : "Received by Worker"}
+                                {loadingIds.has(entry.id) ? "Processing..." : "Received by Worker"}
                               </button>
                             ) : (
                               <span className="whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-xs font-bold text-zinc-400">
