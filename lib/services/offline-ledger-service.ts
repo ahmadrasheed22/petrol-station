@@ -256,7 +256,7 @@ export async function addPendingLedgerTx(txData: {
   return id as number;
 }
 
-export async function markReceivedLocally(entryId: number): Promise<boolean> {
+export async function markReceivedLocally(entryId: number, workerName: string): Promise<boolean> {
   let updated = false;
 
   await db.transaction("rw", db.pendingLedgerTransactions, db.outbox, async () => {
@@ -267,6 +267,7 @@ export async function markReceivedLocally(entryId: number): Promise<boolean> {
     const receivedAt = new Date().toISOString();
     await db.pendingLedgerTransactions.update(entryId, {
       status: "PENDING_APPROVAL",
+      received_by_worker_name: workerName,
       received_at: receivedAt,
       updated_at: receivedAt,
       sync_status: "pending",
@@ -284,6 +285,7 @@ export async function markReceivedLocally(entryId: number): Promise<boolean> {
           ...createJob.payload,
           client_id: entry.client_id,
           status: "PENDING_APPROVAL",
+          received_by_worker_name: workerName,
           received_at: receivedAt,
         },
       });
@@ -295,6 +297,7 @@ export async function markReceivedLocally(entryId: number): Promise<boolean> {
         payload: {
           client_id: entry.client_id,
           status: "PENDING_APPROVAL",
+          received_by_worker_name: workerName,
           received_at: receivedAt,
         },
         createdAt: receivedAt,

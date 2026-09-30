@@ -242,7 +242,7 @@ export default function WorkerDashboardShell({
                     onSaleRecorded={() => setDirectoryRefreshKey((key) => key + 1)}
                   />
                 </div>
-                <WorkerCustomerLedger refreshKey={directoryRefreshKey} />
+                <WorkerCustomerLedger refreshKey={directoryRefreshKey} workerName={workerName} />
               </div>
             )}
 

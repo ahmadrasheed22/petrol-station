@@ -147,7 +147,7 @@ export default async function KhataPage() {
             <CreditSaleForm workerName={profile.name} />
           </div>
           <div className="lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-2">
-            <WorkerCustomerLedger />
+            <WorkerCustomerLedger workerName={profile.name} />
           </div>
         </div>
 
