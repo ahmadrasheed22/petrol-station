@@ -29,6 +29,7 @@ export default async function AdminKhataPage() {
 
       <KhataApprovalQueue entries={overview.pending_approvals} />
 
+
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl sm:p-6">
         <div className="border-b border-zinc-800 pb-5">
           <h2 className="text-lg font-bold text-white">Customer Directory</h2>

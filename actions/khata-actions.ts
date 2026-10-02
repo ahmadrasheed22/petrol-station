@@ -47,6 +47,7 @@ export interface CustomerDirectoryEntry {
   total_balance: number;
   latest_transaction_at: string;
   has_pending_approval: boolean;
+  issued_by_worker_name?: string | null;
 }
 
 export interface CloudLedgerSyncEntry {
@@ -196,16 +197,23 @@ export async function getCustomerDirectory(): Promise<{
         const ledgerEntries = customer.ledger_transactions || [];
         const totalBalance = calculateOutstandingBalance(ledgerEntries);
         const hasPendingApproval = ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL");
+        const latestEntry = ledgerEntries[0];
+        const latestCreditEntry = ledgerEntries.find((entry) => entry.issuer);
         return {
-        id: customer.id,
-        name: customer.name,
-        phone_number: customer.phone_number || "",
-        liters: Number(ledgerEntries[0]?.liters) || 0,
-        latest_fuel_product: ledgerEntries[0]?.fuel_product || null,
-        latest_price_per_liter: Number(ledgerEntries[0]?.price_per_liter) || Number(ledgerEntries[0]?.applied_sp) || 0,
-        total_balance: totalBalance,
-        has_pending_approval: hasPendingApproval,
-        latest_transaction_at: ledgerEntries[0]?.created_at || "",
+          id: customer.id,
+          name: customer.name,
+          phone_number: customer.phone_number || "",
+          liters: Number(latestEntry?.liters) || 0,
+          latest_fuel_product: latestEntry?.fuel_product || null,
+          latest_price_per_liter: Number(latestEntry?.price_per_liter) || Number(latestEntry?.applied_sp) || 0,
+          total_balance: totalBalance,
+          has_pending_approval: hasPendingApproval,
+          latest_transaction_at: latestEntry?.created_at || "",
+          issued_by_worker_name:
+            getJoinedProfileName(latestEntry?.issuer) ||
+            (latestCreditEntry ? getJoinedProfileName(latestCreditEntry.issuer) : null) ||
+            (latestEntry?.issued_by_worker === auth.profile.id ? auth.profile.name : null) ||
+            "—",
         };
       })
       .filter((customer) => customer.total_balance > 0)
@@ -389,7 +397,13 @@ export async function getAdminKhataOverview(): Promise<{
     await Promise.all([
       supabase
         .from("customers")
-        .select("id, name, phone_number, ledger_transactions(amount, liters, fuel_product, price_per_liter, applied_sp, transaction_type, status, created_at)")
+        .select(`
+          id, name, phone_number,
+          ledger_transactions(
+            amount, liters, fuel_product, price_per_liter, applied_sp, transaction_type, status, created_at,
+            issuer:profiles!ledger_transactions_issued_by_worker_fkey(name)
+          )
+        `)
         .order("created_at", { referencedTable: "ledger_transactions", ascending: false }),
       supabase
         .from("ledger_transactions")
@@ -409,16 +423,22 @@ export async function getAdminKhataOverview(): Promise<{
   const directory = (customers || [])
     .map((customer) => {
       const ledgerEntries = customer.ledger_transactions || [];
+      const latestEntry = ledgerEntries[0];
+      const latestCreditEntry = ledgerEntries.find((entry) => entry.issuer);
       return {
-      id: customer.id,
-      name: customer.name,
-      phone_number: customer.phone_number || "",
-      liters: Number(ledgerEntries[0]?.liters) || 0,
-      latest_fuel_product: ledgerEntries[0]?.fuel_product || null,
-      latest_price_per_liter: Number(ledgerEntries[0]?.price_per_liter) || Number(ledgerEntries[0]?.applied_sp) || 0,
-      total_balance: calculateOutstandingBalance(ledgerEntries),
-      has_pending_approval: ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL"),
-      latest_transaction_at: ledgerEntries[0]?.created_at || "",
+        id: customer.id,
+        name: customer.name,
+        phone_number: customer.phone_number || "",
+        liters: Number(latestEntry?.liters) || 0,
+        latest_fuel_product: latestEntry?.fuel_product || null,
+        latest_price_per_liter: Number(latestEntry?.price_per_liter) || Number(latestEntry?.applied_sp) || 0,
+        total_balance: calculateOutstandingBalance(ledgerEntries),
+        has_pending_approval: ledgerEntries.some((entry) => entry.status === "PENDING_APPROVAL"),
+        latest_transaction_at: latestEntry?.created_at || "",
+        issued_by_worker_name:
+          getJoinedProfileName(latestEntry?.issuer) ||
+          (latestCreditEntry ? getJoinedProfileName(latestCreditEntry.issuer) : null) ||
+          "—",
       };
     })
     .filter((customer) => customer.total_balance > 0)
