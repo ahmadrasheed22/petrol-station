@@ -70,13 +70,20 @@ export async function syncInventoryToCloudService(
       }
     }
 
+    const {
+      data: { user: currentUser },
+    } = await supabase.auth.getUser();
+    const receivedBy = currentUser?.id ?? null;
+
     const formattedEntries = entries.map((entry) => ({
       product_id: entry.product_id,
       billed_liters: Number(entry.billed_liters) || 0,
       actual_received_liters: Number(entry.actual_received_liters) || 0,
       cost_per_liter: Number(entry.cost_per_liter) || 0,
+      received_by: receivedBy,
       created_at: entry.created_at || new Date().toISOString(),
     }));
+
 
     const { data, error } = await supabase
       .from("inventory_arrivals")

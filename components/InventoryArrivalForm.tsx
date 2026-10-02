@@ -56,15 +56,13 @@ export default function InventoryArrivalForm() {
           .order("name");
 
         if (!error && data && data.length > 0) {
-          const unique = data.reduce<Product[]>((acc, p) => {
-            if (!acc.some((x) => x.name === p.name)) acc.push(p);
-            return acc;
-          }, []);
+          // Bulletproof dedup: Map keyed by trimmed name guarantees absolute uniqueness
+          const unique = Array.from(
+            new Map(data.map((p) => [p.name.trim(), p])).values()
+          );
           setProducts(unique);
           setSelectedProductId(unique[0].id);
-          if (unique[0].current_cp) {
-            setCostPerLiterStr(unique[0].current_cp.toString());
-          }
+          // Do NOT pre-fill cost — worker must enter it manually
         }
         // If no products found in DB, leave dropdown empty — do not show fake fallback data.
       } catch (err) {
@@ -80,10 +78,7 @@ export default function InventoryArrivalForm() {
 
   const handleProductChange = (productId: string) => {
     setSelectedProductId(productId);
-    const prod = products.find((p) => p.id === productId);
-    if (prod?.current_cp) {
-      setCostPerLiterStr(prod.current_cp.toString());
-    }
+    // Do NOT auto-populate cost — worker must enter it manually each time
   };
 
   const billedLiters = parseFloat(billedLitersStr) || 0;
