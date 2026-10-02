@@ -204,6 +204,7 @@ export default function WorkerCustomerLedger({
         total_balance: totalBalance,
         has_pending_approval: group.transactions.some((transaction) => transaction.status === "PENDING_APPROVAL"),
         latest_transaction_at: latestLocalTransaction,
+        issued_by_worker_name: latestLocalTransactionEntry?.issued_by_worker_name || "—",
       });
     }
 
