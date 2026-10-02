@@ -58,9 +58,11 @@ export default function SalesFields({
           ) : products.length === 0 ? (
             <option value="">No products found in database</option>
           ) : (
-            products.map((product) => (
-              <option key={product.id} value={product.id}>{product.name}</option>
-            ))
+            products
+              .filter((p, i, arr) => arr.findIndex((x) => x.name === p.name) === i)
+              .map((product) => (
+                <option key={product.id} value={product.id}>{product.name}</option>
+              ))
           )}
         </select>
       </div>

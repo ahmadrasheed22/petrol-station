@@ -9,11 +9,6 @@ import SalesFields, { type SalesProduct } from "@/components/SalesFields";
 
 type Product = SalesProduct;
 
-const DEFAULT_PRODUCTS: Product[] = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
-  { id: "22222222-2222-4222-8222-222222222222", name: "Diesel", current_sp: 280, current_cp: 265 },
-  { id: "33333333-3333-4333-8333-333333333333", name: "Hi-Octane", current_sp: 300, current_cp: 285 },
-];
 
 export default function SalesForm() {
   const [mounted, setMounted] = useState(false);
@@ -48,27 +43,11 @@ export default function SalesForm() {
           if (data[0].current_sp) {
             setPricePerLiterStr(data[0].current_sp.toString());
           }
-        } else {
-          const { data: seededData, error: seedError } = await supabase
-            .from("products")
-            .upsert(DEFAULT_PRODUCTS, { onConflict: "id" })
-            .select("id, name, current_sp, current_cp");
-
-          const effectiveProducts = (!seedError && seededData && seededData.length > 0)
-            ? seededData
-            : DEFAULT_PRODUCTS;
-
-          setProducts(effectiveProducts);
-          setProductId(effectiveProducts[0].id);
-          if (effectiveProducts[0].current_sp) {
-            setPricePerLiterStr(effectiveProducts[0].current_sp.toString());
-          }
         }
+        // If no products returned, leave state empty — no fake fallback data.
       } catch (err: unknown) {
         console.error("Failed to load products:", err);
-        setProducts(DEFAULT_PRODUCTS);
-        setProductId(DEFAULT_PRODUCTS[0].id);
-        setPricePerLiterStr(DEFAULT_PRODUCTS[0].current_sp!.toString());
+        // Leave products empty on error — graceful degradation without fake data.
       } finally {
         setIsLoadingProducts(false);
       }

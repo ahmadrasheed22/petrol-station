@@ -14,21 +14,14 @@ interface Product {
   current_cp?: number;
 }
 
-const DEFAULT_PRODUCTS: Product[] = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
-  { id: "22222222-2222-4222-8222-222222222222", name: "Diesel", current_sp: 280, current_cp: 265 },
-  { id: "33333333-3333-4333-8333-333333333333", name: "Hi-Octane", current_sp: 300, current_cp: 285 },
-];
 
 export default function InventoryArrivalForm() {
   const [mounted, setMounted] = useState(false);
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
-  const [selectedProductId, setSelectedProductId] = useState<string>(DEFAULT_PRODUCTS[0].id);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [billedLitersStr, setBilledLitersStr] = useState<string>("");
   const [actualReceivedLitersStr, setActualReceivedLitersStr] = useState<string>("");
-  const [costPerLiterStr, setCostPerLiterStr] = useState<string>(
-    DEFAULT_PRODUCTS[0].current_cp ? DEFAULT_PRODUCTS[0].current_cp.toString() : "255"
-  );
+  const [costPerLiterStr, setCostPerLiterStr] = useState<string>("");
   const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -63,21 +56,20 @@ export default function InventoryArrivalForm() {
           .order("name");
 
         if (!error && data && data.length > 0) {
-          setProducts(data);
-          setSelectedProductId(data[0].id);
-          if (data[0].current_cp) {
-            setCostPerLiterStr(data[0].current_cp.toString());
+          const unique = data.reduce<Product[]>((acc, p) => {
+            if (!acc.some((x) => x.name === p.name)) acc.push(p);
+            return acc;
+          }, []);
+          setProducts(unique);
+          setSelectedProductId(unique[0].id);
+          if (unique[0].current_cp) {
+            setCostPerLiterStr(unique[0].current_cp.toString());
           }
-        } else {
-          setProducts(DEFAULT_PRODUCTS);
-          setSelectedProductId(DEFAULT_PRODUCTS[0].id);
-          setCostPerLiterStr(
-            DEFAULT_PRODUCTS[0].current_cp ? DEFAULT_PRODUCTS[0].current_cp.toString() : "255"
-          );
         }
+        // If no products found in DB, leave dropdown empty — do not show fake fallback data.
       } catch (err) {
-        console.warn("Could not fetch remote products, using defaults:", err);
-        setProducts(DEFAULT_PRODUCTS);
+        console.warn("Could not fetch remote products:", err);
+        // Leave products empty on error — graceful degradation without fake data.
       } finally {
         setIsLoadingProducts(false);
       }
@@ -231,11 +223,17 @@ export default function InventoryArrivalForm() {
               disabled={isSubmitting || isLoadingProducts}
               className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors cursor-pointer"
             >
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} {p.current_cp ? `(Ref CP: PKR ${p.current_cp}/L)` : ""}
-                </option>
-              ))}
+              {products.length === 0 && !isLoadingProducts ? (
+                <option value="">No products found in database</option>
+              ) : isLoadingProducts ? (
+                <option value="">Loading products...</option>
+              ) : (
+                products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 

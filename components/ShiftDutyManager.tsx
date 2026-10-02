@@ -11,11 +11,6 @@ import ShiftDutyStartForm, { type ShiftDutyProduct } from "@/components/ShiftDut
 
 type Product = ShiftDutyProduct;
 
-const DEFAULT_PRODUCTS: Product[] = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
-  { id: "22222222-2222-4222-8222-222222222222", name: "Diesel", current_sp: 280, current_cp: 265 },
-  { id: "33333333-3333-4333-8333-333333333333", name: "Hi-Octane", current_sp: 300, current_cp: 285 },
-];
 
 interface ShiftDutyManagerProps {
   userId: string;
@@ -28,12 +23,12 @@ export default function ShiftDutyManager({
   workerName,
 }: ShiftDutyManagerProps) {
   const [mounted, setMounted] = useState(false);
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
   // Start Duty Form State
-  const [selectedProductId, setSelectedProductId] = useState<string>(DEFAULT_PRODUCTS[0].id);
-  const [startPriceStr, setStartPriceStr] = useState<string>(DEFAULT_PRODUCTS[0].current_sp?.toString() || "270");
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [startPriceStr, setStartPriceStr] = useState<string>("");
   const [openingMeterStr, setOpeningMeterStr] = useState<string>("");
 
   // End Duty Form State

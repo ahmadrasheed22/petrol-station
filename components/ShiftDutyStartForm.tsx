@@ -52,9 +52,11 @@ export default function ShiftDutyStartForm({
           className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors"
           required
         >
-          {products.map((product) => (
-            <option key={product.id} value={product.id}>{product.name}</option>
-          ))}
+          {products
+            .filter((p, i, arr) => arr.findIndex((x) => x.name === p.name) === i)
+            .map((product) => (
+              <option key={product.id} value={product.id}>{product.name}</option>
+            ))}
         </select>
       </div>
 
