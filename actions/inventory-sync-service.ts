@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
 import type { InventoryPayload, SyncResult } from "@/actions/db-actions";
 
 export async function syncInventoryToCloudService(
@@ -104,6 +105,10 @@ export async function syncInventoryToCloudService(
       console.error("Supabase insert inventory_arrivals error:", fullErrorMsg);
       return { success: false, error: fullErrorMsg };
     }
+
+    revalidatePath("/admin/inventory-logs");
+    revalidatePath("/admin/tanker-arrivals");
+    revalidatePath("/admin/pump-config");
 
     return {
       success: true,

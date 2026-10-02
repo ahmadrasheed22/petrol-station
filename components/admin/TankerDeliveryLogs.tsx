@@ -1,4 +1,4 @@
-﻿import type { TankerDeliveryLog } from "@/actions/inventory-logs-actions";
+import type { TankerDeliveryLog } from "@/actions/inventory-logs-actions";
 
 interface Props {
   logs: TankerDeliveryLog[];
@@ -31,16 +31,16 @@ function VarianceBadge({
   const pct = billed > 0 ? ((diff / billed) * 100).toFixed(1) : "0.0";
   if (diff === 0)
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] font-medium text-zinc-400">
-        Exact
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-400/10 px-3 py-1 text-sm font-semibold text-emerald-400">
+        Exact (0.0 L)
       </span>
     );
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+      className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-semibold ${
         diff < 0
-          ? "bg-rose-500/15 text-rose-400"
-          : "bg-emerald-500/15 text-emerald-400"
+          ? "border-rose-500/20 bg-rose-400/10 text-rose-400"
+          : "border-emerald-500/20 bg-emerald-400/10 text-emerald-400"
       }`}
     >
       {diff > 0 ? "+" : ""}
@@ -75,7 +75,7 @@ export default function TankerDeliveryLogs({ logs }: Props) {
             <h2 className="text-lg font-bold tracking-tight text-white">
               Recent Tanker Deliveries
             </h2>
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-zinc-300">
               Tanker arrival logs submitted by workers — last 50 entries
             </p>
           </div>
@@ -92,7 +92,7 @@ export default function TankerDeliveryLogs({ logs }: Props) {
         <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/60">
             <svg
-              className="h-7 w-7 text-zinc-600"
+              className="h-7 w-7 text-zinc-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -105,10 +105,10 @@ export default function TankerDeliveryLogs({ logs }: Props) {
               />
             </svg>
           </div>
-          <p className="text-sm font-medium text-zinc-400">
+          <p className="text-sm font-medium text-zinc-300">
             No delivery logs yet
           </p>
-          <p className="text-xs text-zinc-600">
+          <p className="text-xs text-zinc-400">
             Tanker arrivals logged by workers will appear here after sync.
           </p>
         </div>
@@ -118,25 +118,25 @@ export default function TankerDeliveryLogs({ logs }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800/60 bg-zinc-950/40">
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-left text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Date &amp; Time
                 </th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-left text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Received By
                 </th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-left text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Fuel Product
                 </th>
-                <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-right text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Billed (L)
                 </th>
-                <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-right text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Actual (L)
                 </th>
-                <th className="px-5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-center text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Variance
                 </th>
-                <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <th className="px-5 py-3 text-right text-sm font-semibold uppercase tracking-wider text-zinc-300">
                   Cost / L
                 </th>
               </tr>
@@ -157,10 +157,10 @@ export default function TankerDeliveryLogs({ logs }: Props) {
                     {/* Date & Time */}
                     <td className="whitespace-nowrap px-5 py-4">
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-medium text-zinc-200">
+                        <span className="font-medium text-zinc-100 text-sm">
                           {date}
                         </span>
-                        <span className="text-xs text-zinc-500 font-mono">
+                        <span className="text-sm text-zinc-300 font-mono">
                           {time}
                         </span>
                       </div>
@@ -169,10 +169,10 @@ export default function TankerDeliveryLogs({ logs }: Props) {
                     {/* Worker */}
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 text-[11px] font-bold text-indigo-400 uppercase">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 text-sm font-bold text-indigo-400 uppercase">
                           {log.received_by_worker_name.charAt(0)}
                         </div>
-                        <span className="font-medium text-zinc-200">
+                        <span className="font-medium text-zinc-100 text-sm">
                           {log.received_by_worker_name}
                         </span>
                       </div>
@@ -180,14 +180,14 @@ export default function TankerDeliveryLogs({ logs }: Props) {
 
                     {/* Fuel Product */}
                     <td className="px-5 py-4">
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-sm font-semibold text-amber-300">
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                         {log.product_name}
                       </span>
                     </td>
 
                     {/* Billed Liters */}
-                    <td className="px-5 py-4 text-right font-mono text-zinc-300">
+                    <td className="px-5 py-4 text-right font-mono text-zinc-200 text-sm">
                       {log.billed_liters.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 2,
@@ -195,7 +195,7 @@ export default function TankerDeliveryLogs({ logs }: Props) {
                     </td>
 
                     {/* Actual Liters */}
-                    <td className="px-5 py-4 text-right font-mono text-zinc-300">
+                    <td className="px-5 py-4 text-right font-mono text-zinc-200 text-sm">
                       {log.actual_received_liters.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 2,
@@ -213,14 +213,14 @@ export default function TankerDeliveryLogs({ logs }: Props) {
                     {/* Cost Per Liter */}
                     <td className="px-5 py-4 text-right">
                       <div className="flex flex-col items-end gap-0.5">
-                        <span className="font-mono font-semibold text-zinc-100">
+                        <span className="font-mono font-medium text-white text-sm">
                           PKR{" "}
                           {log.cost_per_liter.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
                         </span>
-                        <span className="text-[10px] text-zinc-600 font-mono">
+                        <span className="text-sm text-zinc-300 font-mono">
                           Total: PKR{" "}
                           {totalCost.toLocaleString(undefined, {
                             minimumFractionDigits: 0,
