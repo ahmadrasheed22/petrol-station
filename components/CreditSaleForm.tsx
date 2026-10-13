@@ -9,11 +9,6 @@ import CreditSaleFields, { type CreditSaleProduct } from "@/components/CreditSal
 
 type Product = CreditSaleProduct;
 
-const DEFAULT_PRODUCTS: Product[] = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "Petrol", current_sp: 270, current_cp: 255 },
-  { id: "22222222-2222-4222-8222-222222222222", name: "Diesel", current_sp: 280, current_cp: 265 },
-  { id: "33333333-3333-4333-8333-333333333333", name: "Hi-Octane", current_sp: 300, current_cp: 285 },
-];
 
 export default function CreditSaleForm({
   onSaleRecorded,
@@ -54,8 +49,8 @@ export default function CreditSaleForm({
       setIsLoadingProducts(true);
       try {
         if (typeof navigator !== "undefined" && !navigator.onLine) {
-          setProducts(DEFAULT_PRODUCTS);
-          setSelectedProductId(DEFAULT_PRODUCTS[0].id);
+          // Offline: leave products empty; worker will see "No products found" state.
+          setIsLoadingProducts(false);
           return;
         }
 
@@ -71,14 +66,11 @@ export default function CreditSaleForm({
           );
           setProducts(uniqueProducts);
           setSelectedProductId(uniqueProducts[0].id);
-        } else {
-          setProducts(DEFAULT_PRODUCTS);
-          setSelectedProductId(DEFAULT_PRODUCTS[0].id);
         }
+        // If DB returns empty or error, leave products [] — no fake fallback entries.
       } catch (err) {
-        console.warn("Could not fetch remote products, using defaults:", err);
-        setProducts(DEFAULT_PRODUCTS);
-        setSelectedProductId(DEFAULT_PRODUCTS[0].id);
+        console.warn("Could not fetch remote products:", err);
+        // Leave products empty on error — graceful degradation without fake data.
       } finally {
         setIsLoadingProducts(false);
       }
@@ -135,7 +127,7 @@ export default function CreditSaleForm({
     setIsSubmitting(true);
     try {
       const product = products.find((p) => p.id === selectedProductId);
-      const productName = product?.name || DEFAULT_PRODUCTS.find((item) => item.id === selectedProductId)?.name || "Product unavailable";
+      const productName = product?.name || "Product unavailable";
 
       await addPendingLedgerTx({
         customer_name: targetCustomerName,

@@ -9,19 +9,19 @@ import ExpenseForm from "@/components/ExpenseForm";
 import RecentEntries from "@/components/RecentEntries";
 import ShiftDutyMeterReadings from "@/components/ShiftDutyMeterReadings";
 import SyncIndicator from "@/components/SyncIndicator";
-import TankStatus from "@/components/TankStatus";
 import CreditSaleForm from "@/components/CreditSaleForm";
 import WorkerCustomerLedger from "@/components/WorkerCustomerLedger";
+import InventoryArrivalForm from "@/components/InventoryArrivalForm";
 import { db } from "@/lib/offline-db";
 
-export type WorkerView = "duty" | "home" | "expenses" | "khata" | "inventory";
+export type WorkerView = "duty" | "home" | "expenses" | "khata" | "tankers";
 
 const NAV_ITEMS: Array<{ key: WorkerView; label: string; shortLabel: string; icon: string }> = [
   { key: "duty", label: "Shift Management", shortLabel: "Duty", icon: "◷" },
   { key: "home", label: "Meter Readings", shortLabel: "Home", icon: "◔" },
   { key: "expenses", label: "Daily Expenses", shortLabel: "Expenses", icon: "✦" },
   { key: "khata", label: "Khata", shortLabel: "Khata", icon: "▣" },
-  { key: "inventory", label: "Tank Inventory", shortLabel: "Inventory", icon: "◫" },
+  { key: "tankers", label: "Tanker Arrivals", shortLabel: "Tankers", icon: "⊡" },
 ];
 
 export default function WorkerDashboardShell({
@@ -166,7 +166,7 @@ export default function WorkerDashboardShell({
             </div>
 
             <div className="border-t border-zinc-800 bg-zinc-950/60 px-4 py-3 lg:hidden">
-              <nav className="grid grid-cols-5 gap-1.5">
+              <nav className="grid grid-cols-6 gap-1.5">
                 {NAV_ITEMS.map((item) => {
                   const isActive = visibleView === item.key;
                   const isLocked = item.key !== "duty" && !hasDutyAccess;
@@ -246,7 +246,16 @@ export default function WorkerDashboardShell({
               </div>
             )}
 
-            {visibleView === "inventory" && <TankStatus />}
+            {visibleView === "tankers" && (
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Inventory Control</p>
+                  <h2 className="mt-2 text-2xl font-bold tracking-tight text-white">Tanker Arrivals</h2>
+                  <p className="mt-1 text-sm text-zinc-400">Record fuel deliveries offline — synced to Supabase when connectivity is restored.</p>
+                </div>
+                <InventoryArrivalForm />
+              </div>
+            )}
           </main>
         </div>
       </div>

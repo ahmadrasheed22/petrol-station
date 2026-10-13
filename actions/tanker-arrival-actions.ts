@@ -89,7 +89,8 @@ export async function recordTankerArrival(input: {
 
   if (error) return { success: false, error: error.message };
 
-  revalidatePath("/admin/tanker-arrivals");
+  revalidatePath("/"); // Worker dashboard (Tanker Arrivals tab)
+  revalidatePath("/inventory"); // Worker standalone inventory page
   revalidatePath("/admin/inventory");
   revalidatePath("/admin/pump-config");
   return { success: true };
