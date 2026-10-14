@@ -1,6 +1,9 @@
-﻿import TankStatus from "@/components/TankStatus";
+import TankStatus from "@/components/TankStatus";
 import TankerDeliveryLogs from "@/components/admin/TankerDeliveryLogs";
-import { getTankerDeliveryLogs } from "@/actions/inventory-logs-actions";
+import {
+  getTankerDeliveryLogs,
+  getLiveTanks,
+} from "@/actions/inventory-logs-actions";
 
 export const metadata = {
   title: "Inventory & Tanks | Station Admin Hub",
@@ -9,7 +12,10 @@ export const metadata = {
 };
 
 export default async function AdminInventoryPage() {
-  const { logs } = await getTankerDeliveryLogs();
+  const [{ logs }, { tanks: liveTanks }] = await Promise.all([
+    getTankerDeliveryLogs(),
+    getLiveTanks(),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -25,7 +31,7 @@ export default async function AdminInventoryPage() {
       </div>
 
       {/* Live Tank Storage & Calculator (Owner read-only view) */}
-      <TankStatus />
+      <TankStatus initialTanks={liveTanks} />
 
       {/* Tanker Delivery Logs */}
       <TankerDeliveryLogs logs={logs} />

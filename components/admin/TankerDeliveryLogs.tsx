@@ -1,4 +1,9 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { TankerDeliveryLog } from "@/actions/inventory-logs-actions";
+import { clearInventoryTestData } from "@/actions/inventory-logs-actions";
 
 interface Props {
   logs: TankerDeliveryLog[];
@@ -51,6 +56,54 @@ function VarianceBadge({
 }
 
 export default function TankerDeliveryLogs({ logs }: Props) {
+  const [isClearing, setIsClearing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const router = useRouter();
+
+  const handleClearData = async () => {
+    const confirmed = window.confirm(
+      "⚠️ DANGER: Clear All Test Data?\n\nThis will:\n1. Delete ALL records from inventory_arrivals & tanker_arrivals\n2. Reset ALL configured fuel tanks to 0 Liters\n3. Clear staged arrivals in local browser storage\n\nThis action cannot be undone."
+    );
+    if (!confirmed) return;
+
+    setIsClearing(true);
+    setStatusMessage(null);
+
+    try {
+      // Clear offline IndexedDB pending arrivals if present in browser
+      if (typeof window !== "undefined") {
+        try {
+          const { db } = await import("@/lib/offline-db");
+          await db.pendingInventory.clear();
+        } catch (dexieErr) {
+          console.warn("Could not clear local Dexie pending arrivals:", dexieErr);
+        }
+      }
+
+      const res = await clearInventoryTestData();
+      if (!res.success) {
+        setStatusMessage({
+          type: "error",
+          text: res.error || "Failed to reset test logs.",
+        });
+      } else {
+        setStatusMessage({
+          type: "success",
+          text: "Test logs wiped & underground tanks reset to 0 L.",
+        });
+        router.refresh();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error clearing test data.";
+      setStatusMessage({ type: "error", text: msg });
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-xl backdrop-blur-md overflow-hidden">
       {/* Header */}
@@ -81,11 +134,85 @@ export default function TankerDeliveryLogs({ logs }: Props) {
           </div>
         </div>
 
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700/50 bg-zinc-800/70 px-3 py-1 text-xs text-zinc-300">
-          <span className="h-2 w-2 rounded-full bg-amber-400" />
-          {logs.length} record{logs.length !== 1 ? "s" : ""}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700/50 bg-zinc-800/70 px-3 py-1 text-xs text-zinc-300">
+            <span className="h-2 w-2 rounded-full bg-amber-400" />
+            {logs.length} record{logs.length !== 1 ? "s" : ""}
+          </span>
+
+          <button
+            onClick={handleClearData}
+            disabled={isClearing}
+            type="button"
+            className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-1.5 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-500/20 hover:border-rose-500/50 hover:text-rose-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm cursor-pointer"
+            title="Wipe all delivery logs and reset tank volumes to 0 L"
+          >
+            {isClearing ? (
+              <>
+                <svg
+                  className="h-3.5 w-3.5 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8H4z"
+                  />
+                </svg>
+                <span>Resetting...</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                <span>Clear Test Data</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* Status Alert Banner */}
+      {statusMessage && (
+        <div
+          className={`flex items-center justify-between px-6 py-2.5 text-xs font-medium border-b ${
+            statusMessage.type === "success"
+              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+              : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span>{statusMessage.type === "success" ? "✓" : "⚠"}</span>
+            <span>{statusMessage.text}</span>
+          </div>
+          <button
+            onClick={() => setStatusMessage(null)}
+            className="text-zinc-400 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Empty State */}
       {logs.length === 0 ? (

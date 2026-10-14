@@ -1,5 +1,6 @@
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { logout } from "@/actions/auth-actions";
+import { getLiveTanks } from "@/actions/inventory-logs-actions";
 import SyncIndicator from "@/components/SyncIndicator";
 import InventoryArrivalForm from "@/components/InventoryArrivalForm";
 import TankStatus from "@/components/TankStatus";
@@ -15,6 +16,7 @@ export default async function InventoryPage() {
   }
 
   const { user, profile } = authData;
+  const { tanks: liveTanks } = await getLiveTanks();
 
   return (
     <DutyAccessGuard role={profile.role}>
@@ -149,7 +151,7 @@ export default async function InventoryPage() {
         {/* Operational Grid: Form & Tank Levels */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <InventoryArrivalForm />
-          <TankStatus />
+          <TankStatus initialTanks={liveTanks} />
         </div>
       </main>
     </div>

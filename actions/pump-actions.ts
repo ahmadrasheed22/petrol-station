@@ -4,6 +4,32 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { revalidatePath } from "next/cache";
 
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+async function findFuelProductId(
+  supabase: SupabaseClient,
+  fuelType: string
+): Promise<{ id: string } | { error: string }> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id")
+    .eq("name", fuelType.trim())
+    .limit(2);
+
+  if (error) {
+    return { error: `Could not look up the ${fuelType} fuel product: ${error.message}` };
+  }
+  if (!data || data.length !== 1) {
+    return {
+      error: data?.length
+        ? `Multiple products match "${fuelType}". Keep exactly one product for this fuel type.`
+        : `No product matches "${fuelType}". Add the fuel product before configuring its tank.`,
+    };
+  }
+
+  return { id: data[0].id };
+}
+
 export async function getPumpConfig() {
   const supabase = await createClient();
 
@@ -20,9 +46,39 @@ export async function getPumpConfig() {
   };
 }
 
-export async function addFuelTank(data: { tank_number: string; fuel_type: string; capacity_liters: number; current_liters: number }) {
+export async function addFuelTank(data: { fuel_type: string; capacity_liters: number; current_liters: number }) {
   const supabase = await createClient();
-  const { error } = await supabase.from("fuel_tanks").insert(data);
+
+  const [{ count, error: countError }, product] = await Promise.all([
+    supabase.from("fuel_tanks").select("id", { count: "exact", head: true }),
+    findFuelProductId(supabase, data.fuel_type),
+  ]);
+  if (countError) return { success: false, error: `Could not count existing tanks: ${countError.message}` };
+  if (count === null) return { success: false, error: "Could not determine the next tank number." };
+  if ("error" in product) return { success: false, error: product.error };
+
+  const tankNumber = `Tank ${count + 1} - ${data.fuel_type.trim()}`;
+  const { data: existing, error: duplicateCheckError } = await supabase
+    .from("fuel_tanks")
+    .select("id, tank_number")
+    .ilike("tank_number", tankNumber)
+    .limit(1);
+
+  if (duplicateCheckError) {
+    return { success: false, error: `Could not validate the generated tank name: ${duplicateCheckError.message}` };
+  }
+  if (existing && existing.length > 0) {
+    return { success: false, error: `The generated tank name "${existing[0].tank_number}" already exists. Resolve the duplicate before adding a tank.` };
+  }
+
+  const { error } = await supabase.from("fuel_tanks").insert({
+    tank_number: tankNumber,
+    fuel_type: data.fuel_type.trim(),
+    capacity_liters: data.capacity_liters,
+    current_liters: data.current_liters,
+    current_volume: data.current_liters,
+    product_id: product.id,
+  });
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/pump-config");
   return { success: true };
@@ -30,7 +86,33 @@ export async function addFuelTank(data: { tank_number: string; fuel_type: string
 
 export async function updateFuelTank(id: string, data: Partial<{ tank_number: string; fuel_type: string; capacity_liters: number; current_liters: number }>) {
   const supabase = await createClient();
-  const { error } = await supabase.from("fuel_tanks").update(data).eq("id", id);
+
+  // If renaming, check for duplicate names (excluding the current record)
+  if (data.tank_number) {
+    const trimmedName = data.tank_number.trim();
+    const { data: existing } = await supabase
+      .from("fuel_tanks")
+      .select("id, tank_number")
+      .ilike("tank_number", trimmedName)
+      .neq("id", id)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return { success: false, error: `A tank named "${existing[0].tank_number}" already exists.` };
+    }
+  }
+
+  const updateData: Record<string, unknown> = { ...data };
+  if (data.fuel_type) {
+    const product = await findFuelProductId(supabase, data.fuel_type);
+    if ("error" in product) return { success: false, error: product.error };
+    updateData.product_id = product.id;
+  }
+  if (data.current_liters !== undefined) {
+    updateData.current_volume = data.current_liters;
+  }
+
+  const { error } = await supabase.from("fuel_tanks").update(updateData).eq("id", id);
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/pump-config");
   return { success: true };
@@ -44,9 +126,21 @@ export async function deleteFuelTank(id: string) {
   return { success: true };
 }
 
-export async function addPumpMachine(data: { machine_number: string; fuel_type: string; tank_id: string | null; status: string }) {
+export async function addPumpMachine(data: { fuel_type: string; tank_id: string | null; status: string }) {
   const supabase = await createClient();
-  const { error } = await supabase.from("pump_machines").insert(data);
+
+  const { count, error: countError } = await supabase
+    .from("pump_machines")
+    .select("id", { count: "exact", head: true });
+  if (countError) return { success: false, error: `Could not count existing dispensers: ${countError.message}` };
+  if (count === null) return { success: false, error: "Could not determine the next dispenser number." };
+
+  const { error } = await supabase.from("pump_machines").insert({
+    machine_number: `Dispenser ${count + 1}`,
+    fuel_type: data.fuel_type.trim(),
+    tank_id: data.tank_id,
+    status: data.status,
+  });
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/pump-config");
   return { success: true };
@@ -68,9 +162,20 @@ export async function deletePumpMachine(id: string) {
   return { success: true };
 }
 
-export async function addMachineMeter(data: { machine_id: string; meter_number: string; label: string; initial_reading: number; current_reading: number; fuel_type: string; status: string }) {
+export async function addMachineMeter(data: { machine_id: string; initial_reading: number; current_reading: number; fuel_type: string; status: string }) {
   const supabase = await createClient();
-  const { error } = await supabase.from("machine_meters").insert(data);
+  const { count, error: countError } = await supabase
+    .from("machine_meters")
+    .select("id", { count: "exact", head: true });
+  if (countError) return { success: false, error: `Could not count existing meters: ${countError.message}` };
+  if (count === null) return { success: false, error: "Could not determine the next meter number." };
+
+  const meterName = `Meter ${count + 1}`;
+  const { error } = await supabase.from("machine_meters").insert({
+    ...data,
+    meter_number: meterName,
+    label: meterName,
+  });
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/pump-config");
   return { success: true };
@@ -229,4 +334,3 @@ export async function getMeterReadingStats(workerId?: string) {
     recordCount: data.length,
   };
 }
-
