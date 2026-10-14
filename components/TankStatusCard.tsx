@@ -11,8 +11,8 @@ export interface TankStatusData {
     text: string;
     glow: string;
   };
-  temperatureC: number;
-  waterBottomMm: number;
+  temperatureC: number | null;
+  waterBottomMm: number | null;
 }
 
 interface TankStatusCardProps {
@@ -65,11 +65,15 @@ export default function TankStatusCard({
         </div>
         <div>
           <span className="text-zinc-500">Temp / Density:</span>
-          <div className="font-mono text-zinc-300">{tank.temperatureC}°C</div>
+          <div className="font-mono text-zinc-300">
+            {tank.temperatureC === null ? "Unavailable" : `${tank.temperatureC}°C`}
+          </div>
         </div>
         <div>
           <span className="text-zinc-500">Water Bottom:</span>
-          <div className="font-mono text-zinc-300">{tank.waterBottomMm} mm (Clean)</div>
+          <div className="font-mono text-zinc-300">
+            {tank.waterBottomMm === null ? "Unavailable" : `${tank.waterBottomMm} mm`}
+          </div>
         </div>
       </div>
 

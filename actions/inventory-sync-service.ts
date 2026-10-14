@@ -106,6 +106,7 @@ export async function syncInventoryToCloudService(
       return { success: false, error: fullErrorMsg };
     }
 
+    revalidatePath("/admin/inventory");
     revalidatePath("/admin/inventory-logs");
     revalidatePath("/admin/tanker-arrivals");
     revalidatePath("/admin/pump-config");

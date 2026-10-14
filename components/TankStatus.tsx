@@ -3,70 +3,45 @@
 import { useState } from "react";
 import TankStatusCard, { type TankStatusData } from "@/components/TankStatusCard";
 
-const INITIAL_TANKS: TankStatusData[] = [
-  {
-    id: "tank-1",
-    name: "Tank 01 - Underground",
-    fuelType: "Petrol (Super 92)",
-    capacityLiters: 45000,
-    currentLiters: 32400,
-    color: {
-      bar: "from-emerald-500 to-teal-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/30",
-      text: "text-emerald-400",
-      glow: "shadow-emerald-500/20",
-    },
-    temperatureC: 28.4,
-    waterBottomMm: 0,
-  },
-  {
-    id: "tank-2",
-    name: "Tank 02 - Underground",
-    fuelType: "High Speed Diesel",
-    capacityLiters: 50000,
-    currentLiters: 38500,
-    color: {
-      bar: "from-amber-500 to-orange-400",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/30",
-      text: "text-amber-400",
-      glow: "shadow-amber-500/20",
-    },
-    temperatureC: 29.1,
-    waterBottomMm: 2,
-  },
-  {
-    id: "tank-3",
-    name: "Tank 03 - Underground",
-    fuelType: "Hi-Octane (RON 97)",
-    capacityLiters: 25000,
-    currentLiters: 14200,
-    color: {
-      bar: "from-indigo-500 to-purple-400",
-      bg: "bg-indigo-500/10",
-      border: "border-indigo-500/30",
-      text: "text-indigo-400",
-      glow: "shadow-indigo-500/20",
-    },
-    temperatureC: 27.8,
-    waterBottomMm: 0,
-  },
-];
+interface TankStatusProps {
+  initialTanks: TankStatusData[];
+}
 
-export default function TankStatus() {
-  const [tanks] = useState<TankStatusData[]>(INITIAL_TANKS);
-  const [calculatorTankId, setCalculatorTankId] = useState(INITIAL_TANKS[0].id);
+export default function TankStatus({ initialTanks }: TankStatusProps) {
+  const [calculatorTankId, setCalculatorTankId] = useState(
+    initialTanks.length > 0 ? initialTanks[0].id : ""
+  );
   const [plannedLiters, setPlannedLiters] = useState("");
 
-  const calculatorTank = tanks.find((tank) => tank.id === calculatorTankId) ?? tanks[0];
+  // ── Empty state: no tanks configured ──
+  if (initialTanks.length === 0) {
+    return (
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 backdrop-blur-md shadow-xl">
+        <div className="flex flex-col items-center justify-center text-center py-8">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/80 border border-zinc-700/50 mb-5">
+            <svg className="h-8 w-8 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-zinc-200 mb-2">No Tanks Configured</h3>
+          <p className="text-sm text-zinc-400 max-w-md">
+            No tanks configured. Please set up your tanks in the{" "}
+            <span className="font-medium text-cyan-400">Pump Configuration</span> menu.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Normal rendering when tanks exist ──
+  const calculatorTank = initialTanks.find((tank) => tank.id === calculatorTankId) ?? initialTanks[0];
   const plannedChange = Number.parseFloat(plannedLiters) || 0;
   const projectedLiters = calculatorTank.currentLiters + plannedChange;
   const projectedUllage = calculatorTank.capacityLiters - projectedLiters;
   const projectedPercentage = (projectedLiters / calculatorTank.capacityLiters) * 100;
 
-  const totalCapacity = tanks.reduce((acc, t) => acc + t.capacityLiters, 0);
-  const totalFuel = tanks.reduce((acc, t) => acc + t.currentLiters, 0);
+  const totalCapacity = initialTanks.reduce((acc, t) => acc + t.capacityLiters, 0);
+  const totalFuel = initialTanks.reduce((acc, t) => acc + t.currentLiters, 0);
   const totalUllage = totalCapacity - totalFuel;
   const overallPercentage = ((totalFuel / totalCapacity) * 100).toFixed(1);
 
@@ -86,7 +61,7 @@ export default function TankStatus() {
                 Live Tank Monitoring (ATG)
               </h3>
               <p className="text-xs text-zinc-400">
-                Automated dip gauge readings & current storage volume
+                Automated dip gauge readings &amp; current storage volume
               </p>
             </div>
           </div>
@@ -127,7 +102,7 @@ export default function TankStatus() {
               {totalCapacity.toLocaleString()} <span className="text-xs text-zinc-500 font-sans">L</span>
             </div>
             <div className="text-[10px] text-zinc-500 mt-0.5">
-              3 Underground Tanks
+              {initialTanks.length} Underground Tank{initialTanks.length !== 1 ? "s" : ""}
             </div>
           </div>
         </div>
@@ -147,7 +122,7 @@ export default function TankStatus() {
               onChange={(event) => setCalculatorTankId(event.target.value)}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100"
             >
-              {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name} ({tank.fuelType})</option>)}
+              {initialTanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name} ({tank.fuelType})</option>)}
             </select>
           </div>
           <div>
@@ -183,7 +158,7 @@ export default function TankStatus() {
 
       {/* Individual Tank Cards */}
       <div className="space-y-4">
-        {tanks.map((tank) => {
+        {initialTanks.map((tank) => {
           const pct = ((tank.currentLiters / tank.capacityLiters) * 100).toFixed(1);
           const ullage = tank.capacityLiters - tank.currentLiters;
           const numPct = parseFloat(pct);
@@ -202,3 +177,4 @@ export default function TankStatus() {
     </div>
   );
 }
+
