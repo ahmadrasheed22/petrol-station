@@ -202,41 +202,53 @@ export async function deleteMachineMeter(id: string) {
  */
 export async function getShiftMeterReadings(
   workerId?: string,
-  limit: number = 100,
+  limit: number | null = 100,
   offset: number = 0,
   recordedAt?: string
 ) {
   const supabase = await createClient();
+  const pageSize = 500;
+  const requestedLimit = limit ?? Number.MAX_SAFE_INTEGER;
+  const pageLimit = limit === null ? pageSize : Math.min(limit, pageSize);
+  const readings = [];
 
-  let query = supabase
-    .from("shift_meter_readings")
-    .select(`
-      id,
-      meter_id,
-      worker_id,
-      opening_reading,
-      closing_reading,
-      liters_dispensed,
-      price_per_liter,
-      total_amount,
-      recorded_at,
-      created_at,
-      machine_meters!inner(meter_number, label, fuel_type),
-      profiles!inner(name)
-    `)
-    .order("recorded_at", { ascending: false });
+  for (let pageOffset = offset; readings.length < requestedLimit; pageOffset += pageLimit) {
+    const pageLength = Math.min(pageLimit, requestedLimit - readings.length);
+    const end = pageOffset + pageLength - 1;
+    let query = supabase
+      .from("shift_meter_readings")
+      .select(`
+        id,
+        meter_id,
+        worker_id,
+        opening_reading,
+        closing_reading,
+        liters_dispensed,
+        price_per_liter,
+        total_amount,
+        recorded_at,
+        created_at,
+        machine_meters!inner(meter_number, label, fuel_type),
+        profiles!inner(name)
+      `)
+      .order("recorded_at", { ascending: false })
+      .order("id", { ascending: true });
 
-  if (workerId) {
-    query = query.eq("worker_id", workerId);
+    if (workerId) {
+      query = query.eq("worker_id", workerId);
+    }
+    if (recordedAt) {
+      query = query.eq("recorded_at", recordedAt);
+    }
+
+    const { data, error } = await query.range(pageOffset, end);
+    if (error) return { success: false, error: error.message, data: [] };
+
+    readings.push(...(data || []));
+    if (!data || data.length < pageLength || readings.length >= requestedLimit) break;
   }
-  if (recordedAt) {
-    query = query.eq("recorded_at", recordedAt);
-  }
 
-  const { data, error } = await query.range(offset, offset + limit - 1);
-
-  if (error) return { success: false, error: error.message, data: [] };
-  return { success: true, data: data || [] };
+  return { success: true, data: readings };
 }
 
 export async function deleteMeterReadings(

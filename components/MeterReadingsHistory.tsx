@@ -26,7 +26,6 @@ interface MeterReadingRecord {
 
 interface MeterReadingsHistoryProps {
   userId?: string;
-  limit?: number;
 }
 
 const fuelTypeOrder = ["Petrol", "Diesel", "Hi-Octane"];
@@ -49,7 +48,6 @@ const formatTime = (value: string) =>
 
 export default function MeterReadingsHistory({
   userId,
-  limit = 5,
 }: MeterReadingsHistoryProps) {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -79,7 +77,7 @@ export default function MeterReadingsHistory({
       setError(null);
       try {
         const [result, config] = await Promise.all([
-          getShiftMeterReadings(userId, limit),
+          getShiftMeterReadings(userId, null),
           getPumpConfig(),
         ]);
         if (result.success) {
@@ -103,7 +101,7 @@ export default function MeterReadingsHistory({
     }
 
     loadReadings();
-  }, [mounted, userId, limit]);
+  }, [mounted, userId]);
 
   const groupedReadings = useMemo(() => {
     const grouped: Record<string, MeterReadingRecord[]> = {};
@@ -368,7 +366,7 @@ export default function MeterReadingsHistory({
             <div className="space-y-2">
               {activeFuelReadings.length === 0 ? (
                 <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/20 p-4 text-sm text-zinc-500">
-                  No {activeFuelType} readings in this window.
+                  No {activeFuelType} readings found.
                 </div>
               ) : null}
 

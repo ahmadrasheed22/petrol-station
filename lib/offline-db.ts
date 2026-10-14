@@ -39,6 +39,16 @@ export interface ShiftRecord {
   end_time?: string;
   status: "active" | "ended";
   sync_status: SyncStatus;
+  meter_readings_submission_id?: string;
+  meter_readings_upload_recorded_at?: string;
+  meter_readings_uploaded?: boolean;
+  meter_readings_draft?: Record<string, {
+    openingReading: string;
+    closingReading: string;
+    pricePerLiter?: string;
+    meterLabel?: string;
+    fuelType?: string;
+  }>;
   created_at: string;
 }
 

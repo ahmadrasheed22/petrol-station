@@ -185,7 +185,7 @@ export default function AdminOverviewLive({ initialData, view = "overview" }: Ad
             shifts={data.recentShifts}
             highlightedShiftId={highlightedShiftId}
           />
-          <MeterReadingsHistory limit={100} />
+          <MeterReadingsHistory />
         </>
       )}
     </div>
