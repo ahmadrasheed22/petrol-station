@@ -59,7 +59,6 @@ export default function PumpConfigTabs({
           <form onSubmit={onAddTank} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4 max-w-xl">
             <h3 className="font-bold text-white border-b border-zinc-800 pb-2">Add New Tank</h3>
             <div className="grid grid-cols-2 gap-4">
-              <input name="tank_number" placeholder="Tank Number (e.g., Tank 04)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
               <select name="fuel_type" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
                 <option value="Petrol">Petrol</option>
                 <option value="Diesel">Diesel</option>
@@ -68,6 +67,7 @@ export default function PumpConfigTabs({
               <input name="capacity_liters" type="number" placeholder="Capacity (Liters)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
               <input name="current_liters" type="number" placeholder="Current (Liters)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
             </div>
+            <p className="text-xs text-zinc-400">Tank names are generated automatically from the fuel type.</p>
             <button disabled={isLoading} type="submit" className="w-full bg-amber-500 text-zinc-950 font-bold rounded-lg p-2 text-sm hover:bg-amber-400 disabled:opacity-50">
               Add Tank
             </button>
@@ -99,7 +99,6 @@ export default function PumpConfigTabs({
           <form onSubmit={onAddMachine} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4 max-w-xl">
             <h3 className="font-bold text-white border-b border-zinc-800 pb-2">Add New Dispensing Machine</h3>
             <div className="grid grid-cols-2 gap-4">
-              <input name="machine_number" placeholder="Machine Number (e.g., Dispenser 03)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
               <select name="fuel_type" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
                 <option value="Petrol">Petrol</option>
                 <option value="Diesel">Diesel</option>
@@ -115,6 +114,7 @@ export default function PumpConfigTabs({
                 <option value="maintenance">Maintenance</option>
               </select>
             </div>
+            <p className="text-xs text-zinc-400">Dispenser names are generated automatically.</p>
             <button disabled={isLoading} type="submit" className="w-full bg-amber-500 text-zinc-950 font-bold rounded-lg p-2 text-sm hover:bg-amber-400 disabled:opacity-50">
               Add Dispensing Machine
             </button>
@@ -128,7 +128,12 @@ export default function PumpConfigTabs({
             {meters.map((meter) => (
               <div key={meter.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2">
                 <div className="flex justify-between items-start">
-                  <h3 className="font-bold text-white">{meter.label} <span className="text-zinc-500 text-xs">({meter.meter_number})</span></h3>
+                  <h3 className="font-bold text-white">
+                    {meter.label || meter.meter_number}
+                    {meter.label && meter.label !== meter.meter_number && (
+                      <span className="text-zinc-500 text-xs"> ({meter.meter_number})</span>
+                    )}
+                  </h3>
                   <div className="flex gap-2">
                     <button onClick={() => onEditMeter(meter)} className="text-blue-400 hover:text-blue-300 text-xs font-medium">Edit</button>
                     <button onClick={() => onDelete("meter", meter.id)} className="text-red-400 hover:text-red-300 text-xs font-medium">Delete</button>
@@ -147,8 +152,6 @@ export default function PumpConfigTabs({
           <form onSubmit={onAddMeter} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4 max-w-xl">
             <h3 className="font-bold text-white border-b border-zinc-800 pb-2">Add New Meter / Nozzle</h3>
             <div className="grid grid-cols-2 gap-4">
-              <input name="meter_number" placeholder="Meter Number (e.g., Meter #3)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-              <input name="label" placeholder="Label (e.g., Nozzle C - Fast Lane)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500" />
               <select name="machine_id" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-amber-500">
                 <option value="">Select Machine</option>
                 {machines.map((machine) => <option key={machine.id} value={machine.id}>{machine.machine_number} ({machine.fuel_type})</option>)}
@@ -166,6 +169,7 @@ export default function PumpConfigTabs({
                 <option value="maintenance">Maintenance</option>
               </select>
             </div>
+            <p className="text-xs text-zinc-400">Meter names are generated automatically.</p>
             <button disabled={isLoading} type="submit" className="w-full bg-amber-500 text-zinc-950 font-bold rounded-lg p-2 text-sm hover:bg-amber-400 disabled:opacity-50">
               Add Meter
             </button>

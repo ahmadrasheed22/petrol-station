@@ -56,7 +56,6 @@ export default function PumpConfigLive({ initialData }: Props) {
     const formData = new FormData(e.currentTarget);
     try {
       const res = await addFuelTank({
-        tank_number: formData.get("tank_number") as string,
         fuel_type: formData.get("fuel_type") as string,
         capacity_liters: Number(formData.get("capacity_liters")),
         current_liters: Number(formData.get("current_liters")),
@@ -81,7 +80,6 @@ export default function PumpConfigLive({ initialData }: Props) {
     const formData = new FormData(e.currentTarget);
     try {
       const res = await addPumpMachine({
-        machine_number: formData.get("machine_number") as string,
         fuel_type: formData.get("fuel_type") as string,
         tank_id: formData.get("tank_id") as string || null,
         status: formData.get("status") as string,
@@ -107,8 +105,6 @@ export default function PumpConfigLive({ initialData }: Props) {
     try {
       const res = await addMachineMeter({
         machine_id: formData.get("machine_id") as string,
-        meter_number: formData.get("meter_number") as string,
-        label: formData.get("label") as string,
         initial_reading: Number(formData.get("initial_reading")),
         current_reading: Number(formData.get("current_reading")),
         fuel_type: formData.get("fuel_type") as string,
