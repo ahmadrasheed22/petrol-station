@@ -75,20 +75,22 @@ export default function WorkerManager({
           text: `Worker account created for "${name}"!`,
           details:
             credMode === "email"
-              ? `Worker logs in with Email: ${loginDisplay}`
+              ? `A verification email was sent to ${loginDisplay}. The worker must confirm it before logging in.`
               : `Worker logs in with Phone: ${loginDisplay}`,
         });
 
-        const newWorker: WorkerItem = {
-          id: res.user?.id || Date.now().toString(),
-          name,
-          phone: credMode === "phone" ? formatPhoneDisplay(phone) : undefined,
-          email: credMode === "email" ? email.trim() : undefined,
-          loginId: res.user?.loginId,
-          role: "worker",
-          created_at: new Date().toISOString(),
-        };
-        setWorkers((prev) => [newWorker, ...prev]);
+        if (!res.user?.emailVerificationRequired) {
+          const newWorker: WorkerItem = {
+            id: res.user?.id || Date.now().toString(),
+            name,
+            phone: credMode === "phone" ? formatPhoneDisplay(phone) : undefined,
+            email: credMode === "email" ? email.trim() : undefined,
+            loginId: res.user?.loginId,
+            role: "worker",
+            created_at: new Date().toISOString(),
+          };
+          setWorkers((prev) => [newWorker, ...prev]);
+        }
 
         // Reset form
         setName("");

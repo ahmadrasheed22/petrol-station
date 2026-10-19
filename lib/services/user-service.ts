@@ -135,6 +135,7 @@ export async function getAuthenticatedUserProfile(): Promise<AuthenticatedUserWi
   } = await supabase.auth.getUser();
 
   if (!user) return null;
+  if (!user.email_confirmed_at && !isWorkerEmail(user.email)) return null;
 
   const profile = await ensureUserProfile(user);
   return { user, profile };
