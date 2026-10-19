@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserProfile } from "@/lib/services/user-service";
 import { cleanPhoneNumber, phoneToWorkerEmail, isWorkerEmail, workerEmailToPhone, formatPhoneDisplay } from "@/lib/utils/phone";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { getAdminOverviewDataService } from "@/actions/admin-overview-service";
 
 export interface CreateWorkerInput {
@@ -64,18 +65,41 @@ export async function isServiceRoleConfigured(): Promise<boolean> {
 
 /**
  * Creates a new worker user account securely using the Supabase Service Role Key (Admin API).
- * Bypasses email verification, assigns role 'worker', and uses an internal dummy domain
- * for phone-based rural workers who do not have email.
+ * Requires email verification for email accounts; phone-based accounts use an internal
+ * dummy domain and are confirmed because they have no email address to verify.
  */
 export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
   success: boolean;
   error?: string;
-  user?: { id: string; loginId: string; name: string };
+  user?: { id: string; loginId: string; name: string; emailVerificationRequired: boolean };
 }> {
   try {
-    // 1. Authorize: Ensure caller is an authenticated Owner
-    const auth = await getAuthenticatedUserProfile();
-    if (!auth || auth.profile.role !== "owner") {
+    // 1. Authorize against the stored profile role, not user-editable auth metadata.
+    const authClient = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return {
+        success: false,
+        error: "Unauthorized. Only station owners have permission to create worker accounts.",
+      };
+    }
+
+    const { data: profile, error: authProfileError } = await authClient
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (authProfileError) {
+      console.error("Could not verify worker-creation permissions:", authProfileError.message);
+      return {
+        success: false,
+        error: "Unable to verify your permissions. Please try again.",
+      };
+    }
+    if (profile?.role !== "owner") {
       return {
         success: false,
         error: "Unauthorized. Only station owners have permission to create worker accounts.",
@@ -106,6 +130,22 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
       };
     }
 
+    let emailRedirectTo: string | undefined;
+    if (useEmail) {
+      const origin = (await headers()).get("origin");
+      if (!origin) {
+        return {
+          success: false,
+          error: "Unable to determine the app URL for the worker verification email. Please try again.",
+        };
+      }
+      const originUrl = new URL(origin);
+      if (originUrl.protocol !== "https:" && !(originUrl.protocol === "http:" && originUrl.hostname === "localhost")) {
+        return { success: false, error: "Worker email verification requires a secure app URL." };
+      }
+      emailRedirectTo = new URL("/auth/confirm", originUrl).toString();
+    }
+
     // 3. Obtain Admin Client with Service Role Key
     const adminClient = getAdminClient();
     if (!adminClient) {
@@ -120,14 +160,14 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
     const authEmail = useEmail ? rawEmail : phoneToWorkerEmail(cleanPhone);
     const loginId = useEmail ? rawEmail : formatPhoneDisplay(cleanPhone);
 
-    // 5. Create user via Supabase Admin Auth (auto-confirms, does not affect active owner session)
+    // 5. Create user via Supabase Admin Auth without changing the active owner's session.
     const userMetadata: Record<string, string> = { name, role: "worker" };
     if (!useEmail) userMetadata.phone = cleanPhone;
 
     const { data: createData, error: createError } = await adminClient.auth.admin.createUser({
       email: authEmail,
       password,
-      email_confirm: true,
+      email_confirm: !useEmail,
       user_metadata: userMetadata,
     });
 
@@ -143,6 +183,21 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
 
     const newUserId = createData.user.id;
 
+    const cleanUpCreatedAccount = async () => {
+      const { error: profileCleanupError } = await adminClient
+        .from("profiles")
+        .delete()
+        .eq("id", newUserId);
+      const { error: userCleanupError } = await adminClient.auth.admin.deleteUser(newUserId);
+
+      if (profileCleanupError) {
+        console.error("Could not remove worker profile after account creation failed:", profileCleanupError.message);
+      }
+      if (userCleanupError) {
+        console.error("Could not remove worker auth user after account creation failed:", userCleanupError.message);
+      }
+    };
+
     // 6. Ensure profile entry exists with role = 'worker'
     const { error: profileError } = await adminClient.from("profiles").upsert(
       {
@@ -155,7 +210,24 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
     );
 
     if (profileError) {
-      console.warn("Could not upsert profile after user creation:", profileError.message);
+      await cleanUpCreatedAccount();
+      return { success: false, error: `Could not create the worker profile: ${profileError.message}` };
+    }
+
+    if (useEmail) {
+      const { error: confirmationError } = await authClient.auth.resend({
+        type: "signup",
+        email: rawEmail,
+        options: { emailRedirectTo },
+      });
+
+      if (confirmationError) {
+        await cleanUpCreatedAccount();
+        return {
+          success: false,
+          error: `The worker account was not kept because its confirmation email could not be sent: ${confirmationError.message}`,
+        };
+      }
     }
 
     revalidatePath("/admin/workers");
@@ -163,7 +235,7 @@ export async function createWorkerAccount(input: CreateWorkerInput): Promise<{
 
     return {
       success: true,
-      user: { id: newUserId, loginId, name },
+      user: { id: newUserId, loginId, name, emailVerificationRequired: Boolean(useEmail) },
     };
   } catch (err: unknown) {
     console.error("Error in createWorkerAccount:", err);
@@ -188,58 +260,55 @@ export async function getWorkersList(): Promise<WorkerItem[]> {
 
     const adminClient = getAdminClient();
 
-    if (adminClient) {
-      // Use Admin Client to get both auth users and profiles
-      const [{ data: usersData }, { data: profilesData }] = await Promise.all([
-        adminClient.auth.admin.listUsers({ page: 1, perPage: 100 }),
-        adminClient.from("profiles").select("id, name, role, created_at"),
-      ]);
-
-      const profilesMap = new Map((profilesData || []).map((p) => [p.id, p]));
-
-      const workers: WorkerItem[] = [];
-      for (const u of usersData?.users || []) {
-        const prof = profilesMap.get(u.id);
-        const role = prof?.role || u.user_metadata?.role || "worker";
-        const name = prof?.name || u.user_metadata?.name || "Worker";
-
-        // Include workers
-        if (role === "worker") {
-          const rawEmail = u.email || "";
-          const isDummy = isWorkerEmail(rawEmail);
-          const phone = u.user_metadata?.phone || (isDummy ? workerEmailToPhone(rawEmail) : undefined);
-
-          workers.push({
-            id: u.id,
-            name,
-            phone: phone ? formatPhoneDisplay(phone) : undefined,
-            email: isDummy ? undefined : u.email,
-            role: "worker",
-            created_at: u.created_at,
-            last_sign_in: u.last_sign_in_at || undefined,
-          });
-        }
-      }
-
-      // Sort by creation date descending
-      return workers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (!adminClient) {
+      console.error("Cannot verify worker email status without the Supabase service role key.");
+      return [];
     }
 
-    // Fallback if Service Role Key is not yet configured: fetch from profiles table via standard client
-    const supabase = await createClient();
-    const { data: profiles } = await supabase
+    const { data: profilesData, error: profilesError } = await adminClient
       .from("profiles")
       .select("id, name, role, created_at")
-      .eq("role", "worker")
-      .order("created_at", { ascending: false });
+      .eq("role", "worker");
+    if (profilesError) {
+      throw new Error(`Could not load worker profiles: ${profilesError.message}`);
+    }
 
-    return (profiles || []).map((p) => ({
-      id: p.id,
-      name: p.name || "Worker",
-      phone: "Phone Auth Active",
-      role: p.role,
-      created_at: p.created_at || new Date().toISOString(),
-    }));
+    const profilesMap = new Map((profilesData || []).map((profile) => [profile.id, profile]));
+    const authUsers = [];
+    for (let page = 1; ; page += 1) {
+      const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 100 });
+      if (error) {
+        throw new Error(`Could not load authentication users: ${error.message}`);
+      }
+      authUsers.push(...data.users);
+      if (data.users.length < 100) break;
+    }
+
+    const workers: WorkerItem[] = [];
+    for (const user of authUsers) {
+      const profile = profilesMap.get(user.id);
+
+      const hasVerifiedEmail =
+        Boolean(user.email_confirmed_at) &&
+        (isWorkerEmail(user.email) || Boolean(user.confirmation_sent_at));
+      if (profile?.role !== "worker" || !hasVerifiedEmail) continue;
+
+      const rawEmail = user.email || "";
+      const isDummy = isWorkerEmail(rawEmail);
+      const phone = user.user_metadata?.phone || (isDummy ? workerEmailToPhone(rawEmail) : undefined);
+
+      workers.push({
+        id: user.id,
+        name: profile.name || user.user_metadata?.name || "Worker",
+        phone: phone ? formatPhoneDisplay(phone) : undefined,
+        email: isDummy ? undefined : user.email,
+        role: "worker",
+        created_at: user.created_at,
+        last_sign_in: user.last_sign_in_at || undefined,
+      });
+    }
+
+    return workers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   } catch (err) {
     console.error("Error fetching workers list:", err);
     return [];

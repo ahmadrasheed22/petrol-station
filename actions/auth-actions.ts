@@ -9,6 +9,103 @@ export interface AuthResponse {
   success?: boolean;
 }
 
+type UserRole = "owner" | "worker";
+
+type PortalLoginResult = { error: string } | { targetUrl: string };
+
+async function clearRejectedLoginSession(client: Awaited<ReturnType<typeof createClient>>) {
+  try {
+    const { error } = await client.auth.signOut();
+    if (error) {
+      console.error("Could not clear rejected login session:", error.message);
+    }
+  } catch (err: unknown) {
+    console.error(
+      "Could not clear rejected login session:",
+      err instanceof Error ? err.message : "Unknown sign-out error."
+    );
+  }
+}
+
+async function authenticateForPortal(
+  email: string,
+  password: string,
+  expectedRole: UserRole,
+  invalidCredentialsMessage: string
+): Promise<PortalLoginResult> {
+  let supabase: Awaited<ReturnType<typeof createClient>> | null = null;
+  let sessionCreated = false;
+
+  try {
+    const client = await createClient();
+    supabase = client;
+    const { error } = await client.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      const normalizedError = error.message.toLowerCase();
+      if (error.code === "email_not_confirmed" || normalizedError.includes("email not confirmed")) {
+        return { error: "Please check your inbox to verify your email before logging in." };
+      }
+      if (normalizedError.includes("invalid login credentials")) {
+        return { error: invalidCredentialsMessage };
+      }
+      return { error: error.message };
+    }
+    sessionCreated = true;
+
+    const {
+      data: { user },
+      error: userError,
+    } = await client.auth.getUser();
+
+    const rejectLogin = async (message: string): Promise<PortalLoginResult> => {
+      await clearRejectedLoginSession(client);
+      sessionCreated = false;
+      return { error: message };
+    };
+
+    if (userError || !user) {
+      return rejectLogin("Unable to verify your account. Please try again.");
+    }
+
+    if (!user.email_confirmed_at) {
+      return rejectLogin("Please check your inbox to verify your email before logging in.");
+    }
+
+    const { data: profile, error: profileError } = await client
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("Could not verify login role:", profileError.message);
+      return rejectLogin("Unable to verify your account role. Please try again.");
+    }
+    if (!profile || (profile.role !== "owner" && profile.role !== "worker")) {
+      return rejectLogin("Unable to verify your account role. Please contact support.");
+    }
+    if (profile.role !== expectedRole) {
+      const portalMessage =
+        profile.role === "owner"
+          ? "Invalid login portal. Please use the Owner tab."
+          : "Invalid login portal. Please use the Worker tab.";
+      return rejectLogin(portalMessage);
+    }
+
+    return { targetUrl: expectedRole === "owner" ? "/admin" : "/" };
+  } catch (err: unknown) {
+    if (supabase && sessionCreated) {
+      await clearRejectedLoginSession(supabase);
+    }
+    return {
+      error: err instanceof Error
+        ? err.message
+        : "An unexpected error occurred during authentication.",
+    };
+  }
+}
+
 /**
  * Server action to authenticate an Owner with email and password via Supabase.
  */
@@ -18,122 +115,14 @@ export async function login(email: string, password: string): Promise<AuthRespon
     return { error: "Email and password are required." };
   }
 
-  let errorMessage: string | null = null;
-  let targetUrl = "/";
-
-  try {
-    const supabase = await createClient();
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email: trimmedEmail,
-      password,
-    });
-
-    if (error) {
-      if (error.message.toLowerCase().includes("invalid login credentials")) {
-        errorMessage = "Invalid email or password. Please check your credentials.";
-      } else {
-        errorMessage = error.message;
-      }
-    } else {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        const { ensureUserProfile } = await import("@/lib/services/user-service");
-        const profile = await ensureUserProfile(user);
-        if (profile.role === "owner") {
-          targetUrl = "/admin";
-        } else {
-          targetUrl = "/";
-        }
-      }
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      errorMessage = err.message;
-    } else {
-      errorMessage = "An unexpected error occurred during authentication.";
-    }
-  }
-
-  if (errorMessage) {
-    return { error: errorMessage };
-  }
-
-  redirect(targetUrl);
-}
-
-/**
- * Server action to register a new Owner account.
- * Creates the Supabase Auth user and immediately sets role = 'owner' in public.profiles.
- */
-export async function registerOwner(
-  name: string,
-  email: string,
-  password: string
-): Promise<AuthResponse> {
-  const trimmedName = name?.trim();
-  const trimmedEmail = email?.trim().toLowerCase();
-
-  if (!trimmedName || trimmedName.length < 2) {
-    return { error: "Name must be at least 2 characters." };
-  }
-  if (!trimmedEmail || !trimmedEmail.includes("@")) {
-    return { error: "Please enter a valid email address." };
-  }
-  if (!password || password.length < 8) {
-    return { error: "Password must be at least 8 characters long." };
-  }
-
-  let errorMessage: string | null = null;
-
-  try {
-    const supabase = await createClient();
-
-    const { data, error } = await supabase.auth.signUp({
-      email: trimmedEmail,
-      password,
-      options: {
-        data: {
-          name: trimmedName,
-          role: "owner",
-        },
-      },
-    });
-
-    if (error) {
-      if (error.message.toLowerCase().includes("already registered")) {
-        errorMessage = "An account with this email already exists. Please sign in instead.";
-      } else {
-        errorMessage = error.message;
-      }
-    } else if (data.user) {
-      // Immediately upsert profile with owner role in case the trigger hasn't fired yet
-      await supabase.from("profiles").upsert(
-        {
-          id: data.user.id,
-          name: trimmedName,
-          role: "owner",
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" }
-      );
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      errorMessage = err.message;
-    } else {
-      errorMessage = "An unexpected error occurred during registration.";
-    }
-  }
-
-  if (errorMessage) {
-    return { error: errorMessage };
-  }
-
-  redirect("/admin");
+  const result = await authenticateForPortal(
+    trimmedEmail,
+    password,
+    "owner",
+    "Invalid email or password. Please check your credentials."
+  );
+  if ("error" in result) return result;
+  redirect(result.targetUrl);
 }
 
 /**
@@ -168,56 +157,16 @@ export async function loginWorker(identifier: string, password: string): Promise
     loginEmail = phoneToWorkerEmail(cleaned);
   }
 
-  let errorMessage: string | null = null;
-  let targetUrl = "/";
-
-  try {
-    const supabase = await createClient();
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password,
-    });
-
-    if (error) {
-      if (
-        error.message.toLowerCase().includes("invalid login credentials") ||
-        error.message.toLowerCase().includes("email not confirmed")
-      ) {
-        errorMessage = isEmailInput
-          ? "Invalid email or password. Please verify with your station owner."
-          : "Invalid phone number or password. Please verify with your station owner.";
-      } else {
-        errorMessage = error.message;
-      }
-    } else {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        const { ensureUserProfile } = await import("@/lib/services/user-service");
-        const profile = await ensureUserProfile(user);
-        if (profile.role === "owner") {
-          targetUrl = "/admin";
-        } else {
-          targetUrl = "/";
-        }
-      }
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      errorMessage = err.message;
-    } else {
-      errorMessage = "An unexpected error occurred during worker authentication.";
-    }
-  }
-
-  if (errorMessage) {
-    return { error: errorMessage };
-  }
-
-  redirect(targetUrl);
+  const result = await authenticateForPortal(
+    loginEmail,
+    password,
+    "worker",
+    isEmailInput
+      ? "Invalid email or password. Please verify with your station owner."
+      : "Invalid phone number or password. Please verify with your station owner."
+  );
+  if ("error" in result) return result;
+  redirect(result.targetUrl);
 }
 
 /**

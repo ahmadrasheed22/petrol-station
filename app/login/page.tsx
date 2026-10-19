@@ -1,28 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
-import { login, loginWorker, registerOwner } from "@/actions/auth-actions";
+import { login, loginWorker } from "@/actions/auth-actions";
+import { createClient } from "@/lib/supabase/client";
 import LoginModePanel, { type LoginPageMode } from "@/components/LoginModePanel";
 import WorkerLoginForm from "@/components/WorkerLoginForm";
 import OwnerLoginForm from "@/components/OwnerLoginForm";
 import OwnerRegistrationForm from "@/components/OwnerRegistrationForm";
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<LoginPageMode>("worker");
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-zinc-950" />}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
+  const searchParams = useSearchParams();
+  const oauthError = searchParams.get("error");
+  const emailConfirmed = searchParams.get("email-confirmed") === "1";
+  const initialError =
+    emailConfirmed
+      ? "Your email has been verified. Please sign in."
+      : oauthError === "owner-account-required"
+        ? "Google sign-in is only available for an existing owner account. Workers must be created by an owner."
+        : oauthError === "email-confirmation-failed"
+          ? "This verification link is invalid or expired. Please ask your station owner for a new one."
+          : oauthError === "email-not-confirmed"
+            ? "Please verify your email address before accessing your account."
+          : oauthError
+            ? "Unable to sign in with Google. Please try again."
+          : null;
+  const [mode, setMode] = useState<LoginPageMode>(
+    emailConfirmed || (oauthError && oauthError !== "email-confirmation-failed") ? "owner" : "worker"
+  );
   const [workerIdentifier, setWorkerIdentifier] = useState("");
   const [workerPassword, setWorkerPassword] = useState("");
   const [showWorkerPassword, setShowWorkerPassword] = useState(false);
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
   const [showOwnerPassword, setShowOwnerPassword] = useState(false);
-  const [regName, setRegName] = useState("");
-  const [regEmail, setRegEmail] = useState("");
-  const [regPassword, setRegPassword] = useState("");
-  const [regPasswordConfirm, setRegPasswordConfirm] = useState("");
-  const [showRegPassword, setShowRegPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    if (oauthError || emailConfirmed) window.history.replaceState({}, "", window.location.pathname);
+  }, [emailConfirmed, oauthError]);
 
   const handleModeChange = (newMode: LoginPageMode) => {
     setMode(newMode);
@@ -39,6 +66,7 @@ export default function LoginPage() {
     } catch (err: unknown) {
       if (isRedirectError(err)) throw err;
       setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -53,25 +81,31 @@ export default function LoginPage() {
     } catch (err: unknown) {
       if (isRedirectError(err)) throw err;
       setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+    } finally {
       setIsLoading(false);
     }
   };
 
-  const handleRegisterSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleGoogleSignIn = async () => {
     setError(null);
-    if (regPassword !== regPasswordConfirm) {
-      setError("Passwords do not match. Please try again.");
-      return;
-    }
-    setIsLoading(true);
+    setIsGoogleLoading(true);
+
     try {
-      const result = await registerOwner(regName, regEmail, regPassword);
-      if (result?.error) setError(result.error);
+      const supabase = createClient();
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (oauthError) {
+        setError(oauthError.message);
+      }
     } catch (err: unknown) {
-      if (isRedirectError(err)) throw err;
-      setError(err instanceof Error ? err.message : "Unable to create your account. Please try again.");
-      setIsLoading(false);
+      setError(err instanceof Error ? err.message : "Unable to continue with Google. Please try again.");
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -132,23 +166,14 @@ export default function LoginPage() {
               onPasswordChange={setOwnerPassword}
               onTogglePassword={() => setShowOwnerPassword((visible) => !visible)}
               onRegister={() => handleModeChange("register")}
+              onGoogleSignIn={handleGoogleSignIn}
+              isGooglePending={isGoogleLoading}
             />
           )}
 
           {mode === "register" && (
             <OwnerRegistrationForm
-              name={regName}
-              email={regEmail}
-              password={regPassword}
-              passwordConfirm={regPasswordConfirm}
-              showPassword={showRegPassword}
-              isPending={isLoading}
-              onSubmit={handleRegisterSubmit}
-              onNameChange={setRegName}
-              onEmailChange={setRegEmail}
-              onPasswordChange={setRegPassword}
-              onPasswordConfirmChange={setRegPasswordConfirm}
-              onTogglePassword={() => setShowRegPassword((visible) => !visible)}
+              onError={setError}
               onOwnerLogin={() => handleModeChange("owner")}
             />
           )}
