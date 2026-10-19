@@ -66,6 +66,7 @@ function LoginPageContent() {
     } catch (err: unknown) {
       if (isRedirectError(err)) throw err;
       setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -80,6 +81,7 @@ function LoginPageContent() {
     } catch (err: unknown) {
       if (isRedirectError(err)) throw err;
       setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -99,10 +101,10 @@ function LoginPageContent() {
 
       if (oauthError) {
         setError(oauthError.message);
-        setIsGoogleLoading(false);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unable to continue with Google. Please try again.");
+    } finally {
       setIsGoogleLoading(false);
     }
   };
