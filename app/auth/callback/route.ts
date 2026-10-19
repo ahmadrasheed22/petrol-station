@@ -37,11 +37,18 @@ export async function GET(request: NextRequest) {
 
   if (profileError) {
     console.error("Could not verify Google sign-in permissions:", profileError.message);
+    await supabase.auth.signOut();
+    return redirectToLogin(request, "google-sign-in-failed");
   }
 
-  if (profileError || profile?.role !== "owner") {
+  if (profile?.role === "worker") {
     await supabase.auth.signOut();
     return redirectToLogin(request, "owner-account-required");
+  }
+
+  if (profile?.role !== "owner") {
+    await supabase.auth.signOut();
+    return redirectToLogin(request, "google-sign-in-failed");
   }
 
   return NextResponse.redirect(new URL("/admin", request.url));
