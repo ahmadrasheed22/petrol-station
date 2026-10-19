@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isWorkerEmail } from "@/lib/utils/phone";
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -34,6 +35,8 @@ export async function proxy(request: NextRequest) {
   // Bypass authentication check for public/static routes and manifest
   if (
     pathname === "/login" ||
+    pathname === "/auth/callback" ||
+    pathname === "/auth/confirm" ||
     pathname === "/manifest.json" ||
     pathname === "/sw.js" ||
     pathname.startsWith("/icon-") ||
@@ -49,6 +52,13 @@ export async function proxy(request: NextRequest) {
   if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  if (!user.email_confirmed_at && !isWorkerEmail(user.email)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("error", "email-not-confirmed");
     return NextResponse.redirect(url);
   }
 
